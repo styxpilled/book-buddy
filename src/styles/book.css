@@ -1,0 +1,9 @@
+#reader {
+	& br {
+		height: 1rem;
+
+		&::before {
+			height: 1rem;
+		}
+	}
+}

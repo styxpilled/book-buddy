@@ -1,0 +1,44 @@
+html,
+body {
+	margin: 0;
+	height: 100%;
+}
+
+body {
+	font-family: monospace;
+	background-color: #181818;
+	color: whitesmoke;
+
+	--color: whitesmoke;
+	--bg-color: #181818;
+}
+
+.btn {
+	border: 1px solid var(--color);
+	padding: 0 0.5rem;
+}
+
+.container {
+	margin: 1rem;
+	border: 1px solid var(--color-accent, var(--color));
+	position: relative;
+	background-color: var(--bg-color);
+}
+
+.container:hover {
+	--color-accent: #df3618;
+}
+
+.container::before {
+	z-index: 5;
+	text-indent: 0;
+	position: absolute;
+	font-size: 1rem;
+	text-align: center;
+	top: -0.75rem;
+	left: 0.25rem;
+	background-color: var(--bg-color);
+	padding: 0 0.5rem;
+	content: var(--label);
+	color: var(--color-accent, var(--color));
+}
