@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { addFile } from '$lib';
+	import { canvasToText, createImageCanvas } from '$lib/braille';
 	import { books } from '$lib/stores';
 	import { open } from '@tauri-apps/api/dialog';
 	import { convertFileSrc } from '@tauri-apps/api/tauri';
@@ -22,13 +23,23 @@
 				await book.ready;
 				// TODO: book cover
 				// coverurl gives a blob url, covert that into braille
-				// const coverUrl = await book.coverUrl();
+				const coverUrl = await book.coverUrl();
+				let cover = '';
+				if (coverUrl) {
+					const canvas = await createImageCanvas(coverUrl);
+					// settings.last_canvas = canvas;
+					// settings.last_dithering = null;
+					cover = canvasToText(canvas);
+				}
 				const title = book?.packaging?.metadata?.title;
 				if (title === undefined) {
 					// TODO: error toast
 					continue;
 				}
-				$books.push(title);
+				$books.push({
+					title,
+					cover
+				});
 				$books = $books;
 				localStorage.setItem(title, file);
 			}
@@ -36,4 +47,4 @@
 	};
 </script>
 
-<button class="btn" on:click={getBooks}>add book</button>
+<button class="btn" on:click={getBooks}>Add books</button>

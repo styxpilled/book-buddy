@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { page } from '$app/stores';
+	import { mainLabel } from '$lib/stores';
 	import Reader from '$ui/Reader.svelte';
+
+	$mainLabel.mode = 'manual';
 </script>
 
-<h1>hi {$page.params.id}</h1>
 <Reader id={$page.params.id} />

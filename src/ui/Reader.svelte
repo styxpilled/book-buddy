@@ -60,11 +60,11 @@
 		if (tagName === 'input' || tagName === 'textarea') return;
 		switch (key) {
 			case 'arrowleft': {
-				await nextPage();
+				await prevPage();
 				break;
 			}
 			case 'arrowright': {
-				await prevPage();
+				await nextPage();
 				break;
 			}
 			default:
@@ -72,7 +72,7 @@
 		}
 	};
 
-	const nextPage = async () => {
+	const prevPage = async () => {
 		if (innerReader?.scrollLeft === undefined) {
 			await rendition.prev();
 			innerReader = document.querySelector(`div[id^='epubjs-view']`) as HTMLDivElement;
@@ -85,7 +85,7 @@
 		}
 	};
 
-	const prevPage = async () => {
+	const nextPage = async () => {
 		if (innerReader?.scrollLeft === undefined) {
 			await rendition.next();
 			innerReader = document.querySelector(`div[id^='epubjs-view']`) as HTMLDivElement;
@@ -101,17 +101,13 @@
 
 <svelte:window on:keydown={keybindHandler} />
 
-<button class="btn" on:click={prevPage}>previous page</button>
-<button class="btn" on:click={nextPage}>next page</button>
-<button class="btn" on:click={() => (innerReader.scrollLeft += width)}>uhuh</button>
-<div
-	id="reader"
-	class="container"
-	style:--label="'{rendition?.book?.packaging?.metadata?.title}'"
-	style:--width="{width}px"
-	style:--height="{height}px"
-	bind:this={reader}
-></div>
+<div class="label row space-between" style="width: {Math.max(width / 2, 250)}px;">
+	<h3 class="inline">{id}</h3>
+	<button class="btn" on:click={prevPage}>Previous page</button>
+	<button class="btn" on:click={nextPage}>Next page</button>
+</div>
+
+<div id="reader" style:--width="{width}px" style:--height="{height}px" bind:this={reader}></div>
 
 <!-- {' '}{innerReader?.scrollLeft || ''} -->
 <style>
