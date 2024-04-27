@@ -6,8 +6,8 @@
 </script>
 
 <div id="root">
-	<div class="container nav" style:--label="'book-buddy'">
-		<nav>
+	<div class="uhuh">
+		<nav class="container nav" style:--label="'book-buddy'">
 			<a href="/" class="btn lg">HOME</a>
 		</nav>
 	</div>
@@ -24,17 +24,30 @@
 <style>
 	#root {
 		width: auto;
+		display: inline-block;
+		flex-direction: column;
 	}
 
 	#main {
 		width: max-content;
-		min-width: max(50rem, 75%);
+		min-width: max(50rem, 40%);
 		min-height: 10rem;
 	}
 
-	nav {
-		padding: 0.5rem 0;
-		width: max(50rem, 100%);
+	.uhuh {
+		display: flex;
+	}
+
+	nav.container.nav {
+		flex-grow: 1;
+		height: min-content;
+		width: 0;
+		/* padding: 0.5rem 0; */
+		/* max-width: 50rem; */
+		/* width: ; */
+		/* display: flex; */
+		/* width: 100%; */
+		/* width: max(50rem, 40%); */
 	}
 	/* #main {
 		font-family: monospace;

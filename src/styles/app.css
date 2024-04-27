@@ -10,7 +10,98 @@ body {
 	color: whitesmoke;
 
 	--color: whitesmoke;
+	--color-inactive: #cdcdcd;
 	--bg-color: #181818;
+}
+
+*::-webkit-scrollbar {
+	/* width: 0.75rem; */
+	/* height: 0.75rem; */
+	width: 24px;
+	height: 24px;
+	/* background-color: var(--bg-color); */
+	/* border: 14px solid white; */
+	/* outline: white solid 1px; */
+}
+
+/* *::-webkit-scrollbar {
+} */
+
+*::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+*::-webkit-scrollbar-thumb:horizontal {
+	background-image: repeating-linear-gradient(
+			0deg,
+			transparent,
+			transparent 4px,
+			var(--bg-color) 4px,
+			var(--bg-color) 20px
+		),
+		repeating-linear-gradient(
+			90deg,
+			var(--bg-color),
+			var(--bg-color) 12px,
+			yellow 12px,
+			yellow 24px
+		);
+	background-size: 24px;
+	background-position: 0 12px;
+	background-repeat: repeat;
+}
+
+*::-webkit-scrollbar-thumb:vertical {
+	/* background-image: repeating-linear-gradient(
+			90deg,
+			var(--bg-color),
+			var(--bg-color) 12px,
+			transparent 12px,
+			transparent 16px,
+			var(--bg-color) 16px,
+			var(--bg-color) 24px
+		),
+		repeating-linear-gradient(0deg, white, white 8px, var(--bg-color) 8px, var(--bg-color) 20px); */
+
+	background-image: linear-gradient(
+			to bottom,
+			var(--bg-color),
+			var(--bg-color) 4px,
+			transparent 4px
+		),
+		linear-gradient(to top, var(--bg-color), var(--bg-color) 4px, transparent 4px),
+		linear-gradient(
+			to right,
+			white,
+			white 2px,
+			var(--bg-color) 2px,
+			var(--bg-color) 7px,
+			transparent 7px
+		),
+		linear-gradient(
+			to left,
+			white,
+			white 2px,
+			var(--bg-color) 2px,
+			var(--bg-color) 7px,
+			transparent 7px
+		),
+		repeating-linear-gradient(0deg, white, white 10px, var(--bg-color) 10px, var(--bg-color) 18px);
+
+	/* repeating-linear-gradient(0deg, white, white 8px, var(--bg-color) 8px, var(--bg-color) 20px); */
+	/* background-size: 24px; */
+	background-position: 0 0px;
+	background-repeat: repeat;
+}
+
+*::-webkit-scrollbar-thumb {
+	/* background-color: transparent; */
+	/* background-color: var(--color-inactive); */
+	/* border: 1px dashed var(--color); */
+
+	/* border: 1px solid white; */
+	border: 4px solid var(--bg-color);
+	border-radius: 0;
 }
 
 .btn {
@@ -47,14 +138,18 @@ body {
 } */
 
 .container {
-	padding: 0.5rem;
-	margin: 2rem;
+	padding: 14px 0.25rem;
+	margin: 1rem;
 	border: 1px solid var(--color-accent, var(--color));
 	position: relative;
 	background-color: var(--bg-color);
 
-	&:hover {
-		/* --color-accent: #4cba3c; */
+	/* &:hover {
+		 --color-accent: #4cba3c; 
+	} */
+
+	&.nomar {
+		margin: 0;
 	}
 
 	&:hover > * {

@@ -144,6 +144,20 @@
 			font-size: 1.5rem;
 		}
 
+		/* & *::-webkit-scrollbar {
+			width: 0 !important;
+			background-color: orange;
+			display: none !important;
+		}
+
+		& *::-webkit-scrollbar-thumb {
+			display: none !important;
+		}
+
+		& *::-webkit-scrollbar-track {
+			background-color: transparent !important;
+		} */
+
 		& div[id^='epubjs-view'] {
 			overflow: scroll !important;
 			width: 500px;
@@ -157,23 +171,13 @@
 			& svg {
 				align-self: center;
 			}
+			/* scrollbar-width: thin; */
+		}
 
-			& * {
-				/* scrollbar-width: thin; */
-				scrollbar-color: transparent;
-			}
-
-			&::-webkit-scrollbar {
-				width: 0;
-			}
-
-			&::-webkit-scrollbar-thumb {
-				display: none;
-			}
-
-			&::-webkit-scrollbar-track {
-				background-color: transparent;
-			}
+		& .epub-view {
+			display: flex !important;
+			align-items: center;
+			justify-content: center;
 		}
 
 		& div {
@@ -187,5 +191,9 @@
 		&.calibre1 {
 			overflow: scroll;
 		}
+	}
+
+	:global(#reader *) {
+		scrollbar-width: none;
 	}
 </style>
