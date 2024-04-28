@@ -1,22 +1,34 @@
-<div class="drop-container">
+<script lang="ts">
+	export let style = '';
+</script>
+
+<div class="drop-container" {style}>
 	<slot name="drop-btn" />
-	<div class="drop-content">
-		<div class="drop-content-inner">
-			<slot />
+	<div class="uhuh">
+		<div class="drop-content">
+			<div class="drop-content-inner">
+				<slot />
+			</div>
 		</div>
 	</div>
 </div>
 
 <style>
 	.drop-container {
+		display: flex;
+		flex-direction: row;
+	}
+
+	.uhuh {
 		position: relative;
 	}
 
-	.drop-container:hover > .drop-content {
+	.drop-container:hover > .uhuh > .drop-content {
 		display: block;
 		position: absolute;
 		z-index: 10;
 		left: 0.25rem;
+		top: 0;
 		background-color: var(--bg-color);
 		padding: 0.5rem;
 	}

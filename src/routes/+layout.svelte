@@ -26,10 +26,10 @@
 			<input type="text" />
 		</div>
 		<div class="row" style="font-size: 0.5rem;">
+			<!-- <Icon />
 			<Icon />
 			<Icon />
-			<Icon />
-			<Icon />
+			<Icon /> -->
 		</div>
 	</div>
 	<div

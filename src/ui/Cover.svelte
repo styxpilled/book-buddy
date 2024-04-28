@@ -29,6 +29,7 @@
 		width: max-content;
 		height: max-content;
 		padding: 0.5rem;
+		line-height: 0.7rem;
 		position: relative;
 		overflow: hidden;
 	}
