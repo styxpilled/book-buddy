@@ -1,26 +1,8 @@
-import type { BookData } from './stores';
-
-export const bookBeginningSegment = `   ,   ,
-  /////
- /////
-|~~~|
-|===|
-|j  |
-| g |
-|  s|
-|===|
-'---'`;
-
-// export const bookBeginningSegmentDisplay = `   ,   ,
-//   /////
-//  /////
-// |~~~|
-// |===|
-// |j  |
-// | g |
-// |  s|
-// |===|
-// '---'`;
+export function* chunks<T>(arr: T[], n: number): Generator<T[], void> {
+	for (let i = 0; i < arr.length; i += n) {
+		yield arr.slice(i, i + n);
+	}
+}
 
 const getLettersFromTitle = (input: string) => {
 	let letters = [];
@@ -35,7 +17,7 @@ const getLettersFromTitle = (input: string) => {
 	return letters;
 };
 
-export const bookBeginningSegmentDisplay = (input: string) => {
+export const bookBeginningSegment = (input: string) => {
 	const l = getLettersFromTitle(input);
 	return `   ,   ,
   /////
@@ -49,7 +31,7 @@ export const bookBeginningSegmentDisplay = (input: string) => {
 '---'`;
 };
 
-export const bookMiddleSegmentDisplay = (input: string) => {
+export const bookMiddleSegment = (input: string) => {
 	const l = getLettersFromTitle(input);
 	return `   ,   ,
   /////
@@ -63,42 +45,8 @@ export const bookMiddleSegmentDisplay = (input: string) => {
 '---'`;
 };
 
-// export const bookMiddleSegmentDisplay = `   ,   ,
-//   /////
-//  /////
-// |~~~|
-// |===|
-// |j  |
-// | g |
-// |  s|
-// |===|
-// '---'`;
-
-export const bookMiddleSegment = `,   ,
-/////
-/////
-|~~~|
-|===|
-|j  |
-| g |
-|  s|
-|===|
-'---'`;
-
-const bookEndSegments = `,   ,
-/////|
-///// |
-|~~~|  |
-|===|  |
-|j  |  |
-| g |  |
-|  s| /
-|===|/
-'---'`;
-
-export const bookEndSegmentDisplay = (input: string) => {
+export const bookEndSegment = (input: string) => {
 	const l = getLettersFromTitle(input);
-
 	return `   ,   ,
   //// |
  ////  |
@@ -109,40 +57,4 @@ export const bookEndSegmentDisplay = (input: string) => {
 |${l?.[6] || ' '}${l?.[7] || ' '}${l?.[8] || ' '}| /
 |===|/
 '---'`;
-};
-
-export const generateBookLibrary = (books: BookData[]) => {
-	// let out = bookBeginningSegment;
-	const agg: string[][] = [];
-
-	let segments = bookBeginningSegment.split('\n');
-	for (let index = 0; index < segments.length; index++) {
-		agg.push([]);
-	}
-	for (let index = 0; index < segments.length; index++) {
-		agg[index].push(segments[index]);
-	}
-	segments = bookMiddleSegment.split('\n');
-	for (let index = 0; index < segments.length; index++) {
-		agg[index].push(segments[index].repeat(books.length));
-	}
-	segments = bookEndSegments.split('\n');
-	for (let index = 0; index < segments.length; index++) {
-		agg[index].push(segments[index]);
-	}
-	// for (const segment of bookMiddleSegment.split('\n')) {
-	// 	out.push(segment.repeat(books.length - 1));
-	// 	out += '\n';
-	// }
-	// out += '\n';
-	console.log(agg);
-	let out = ``;
-
-	for (const line of agg) {
-		out += line.join('');
-		out += '\n';
-	}
-	console.log(out);
-
-	return out;
 };

@@ -6,11 +6,12 @@
 
 <li class="container interactable nomar" style:--label="'{book.title}'">
 	<a href="/book/{book.title}" class="cover-anchor">
-		<div class="cover">
-			<pre class="magic">{book.cover}</pre>
-			<pre class="cover-1">{book.cover}</pre>
-			<pre class="cover-2">{book.cover}</pre>
-			<!-- <pre>{book.cover}</pre> -->
+		<div class="spacer">
+			<div class="cover">
+				<pre class="magic">{book.cover}</pre>
+				<pre class="cover-1">{book.cover}</pre>
+				<pre class="cover-2">{book.cover}</pre>
+			</div>
 		</div>
 	</a>
 </li>
@@ -25,6 +26,14 @@
 		height: max-content;
 	}
 
+	.spacer {
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		width: 25rem;
+		height: 34rem;
+	}
+
 	div.cover {
 		width: max-content;
 		height: max-content;
@@ -36,39 +45,28 @@
 
 	pre {
 		display: block;
-		height: max-content;
-		width: max-content;
 		font-size: 0.5rem;
 	}
 
-	pre:not(.magic).cover-1 {
+	.cover-1,
+	.cover-2 {
 		position: absolute;
-		top: 0;
-		animation: scroll-2 5s linear infinite;
-		animation-fill-mode: forwards;
-		animation-play-state: paused;
 	}
 
-	pre.cover-2 {
-		position: absolute;
-		animation: scroll 5s linear infinite;
-		animation-fill-mode: forwards;
-		animation-play-state: paused;
+	.cover-1 {
+		animation: scroll-1 5s linear infinite paused forwards;
 	}
 
-	div.cover:hover > pre:not(.magic) {
-		position: absolute;
-		top: 0;
+	.cover-2 {
+		animation: scroll-2 5s linear infinite paused forwards;
+	}
 
+	div.cover:hover > .cover-1,
+	div.cover:hover > .cover-2 {
 		animation-play-state: running;
 	}
 
-	div.cover:hover > pre.cover-2 {
-		display: block;
-		animation-play-state: running;
-	}
-
-	@keyframes scroll {
+	@keyframes scroll-1 {
 		0% {
 			top: 0%;
 		}
