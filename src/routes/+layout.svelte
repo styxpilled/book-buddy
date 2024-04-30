@@ -3,7 +3,7 @@
 	import '$styles/app.css';
 	import '$styles/inputs.css';
 	import '$styles/book.css';
-	import { mainLabel } from '$lib/stores';
+	import { mainLabel, recentBooks } from '$lib/stores';
 	import Dropdown from '$ui/Dropdown.svelte';
 </script>
 
@@ -14,9 +14,9 @@
 			<Dropdown>
 				<button slot="drop-btn" class="btn lg upper"> Recently read </button>
 				<ul>
-					<li>book 1</li>
-					<li>book 2</li>
-					<li>book 3</li>
+					{#each $recentBooks as recent}
+						<li><a href="book/{recent}">{recent}</a></li>
+					{/each}
 				</ul>
 			</Dropdown>
 			<a href="/design" class="btn lg">DESIGN</a>

@@ -38,7 +38,6 @@
 		Books per shelf
 	</label>
 </div>
-
 {#if $preferences.view === 'cover'}
 	<ul class="covers">
 		{#each $books as book}

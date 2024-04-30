@@ -27,7 +27,7 @@
 		display: block;
 		position: absolute;
 		z-index: 10;
-		left: 0.25rem;
+		/* left: 0.25rem; */
 		top: 0;
 		background-color: var(--bg-color);
 		padding: 0.5rem;

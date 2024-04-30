@@ -6,4 +6,4 @@
 	$mainLabel.mode = 'manual';
 </script>
 
-<Reader id={$page.params.id} />
+<Reader id={decodeURIComponent($page.params.id)} />

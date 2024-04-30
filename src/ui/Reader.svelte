@@ -10,6 +10,7 @@
 
 	import bookStyle from '$styles/book.css?url';
 	import { onMount } from 'svelte';
+	import { recentBooks } from '$lib/stores';
 	// import script from '$lib/test?url';
 
 	export let id: string;
@@ -22,6 +23,7 @@
 	let error: string | null = null;
 
 	onMount(async () => {
+		recentBooks.$push(id);
 		const fileSrc = localStorage.getItem(id);
 		if (fileSrc === null) {
 			error = `Book not in library!`;
@@ -107,9 +109,15 @@
 	<button class="btn" on:click={nextPage}>Next page</button>
 </div>
 
-<div id="reader" style:--width="{width}px" style:--height="{height}px" bind:this={reader}></div>
+<!-- Prevent browser scrolling -->
+<div
+	on:scroll|preventDefault={() => {}}
+	id="reader"
+	style:--width="{width}px"
+	style:--height="{height}px"
+	bind:this={reader}
+></div>
 
-<!-- {' '}{innerReader?.scrollLeft || ''} -->
 <style>
 	#reader {
 		/* height: 30rem;
