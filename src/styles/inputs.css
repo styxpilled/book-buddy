@@ -2,6 +2,9 @@
 .range {
 	display: inline-flex;
 	align-items: center;
+	gap: 0.5rem;
+	user-select: none;
+	cursor: pointer;
 	filter: brightness(0.85);
 	color: var(--color);
 }
@@ -13,9 +16,13 @@
 input[type='range'] {
 	overflow: hidden;
 	display: inline;
-	margin: 0 0.5rem;
 	-webkit-appearance: none; /* Hides the slider so that custom slider can be made */
 	background: transparent; /* Otherwise white in Chrome */
+}
+
+input[type='range']:focus-visible {
+	outline: var(--color) 1px solid;
+	outline-offset: 1px;
 }
 
 input[type='range']::-webkit-slider-thumb {

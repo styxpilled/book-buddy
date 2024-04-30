@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { books, mainLabel, preferences } from '$lib/stores';
+	import { books, mainLabel, preferences, recentBooks } from '$lib/stores';
 	import { chunks } from '$lib/ui';
 	import AddFile from '$ui/AddFile.svelte';
 	import Cover from '$ui/Cover.svelte';
@@ -22,6 +22,12 @@
 		on:click={() => {
 			$books = [];
 		}}>Clear library</button
+	>
+	<button
+		class="btn"
+		on:click={() => {
+			$recentBooks = [];
+		}}>Clear recent</button
 	>
 	<label class="switch">
 		Show covers

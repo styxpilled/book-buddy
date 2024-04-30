@@ -130,6 +130,11 @@ body {
 		outline-offset: 2px;
 		filter: brightness(1);
 	}
+
+	&:focus-visible {
+		outline: var(--color) solid 1px;
+		outline-offset: 1px;
+	}
 }
 
 .sm {
@@ -201,7 +206,8 @@ input[type='text']:focus-visible {
 }
 
 input[type='checkbox'] {
-	display: none;
+	height: 0;
+	width: 0;
 }
 
 .switch {
@@ -240,6 +246,11 @@ input[type='checkbox'] {
 
 .switch:has(input[type='checkbox']:checked)::before {
 	background-position: 1.375rem;
+}
+
+.switch:has(input[type='checkbox']:focus-visible)::before {
+	outline: var(--color) solid 1px;
+	outline-offset: 1px;
 }
 
 .container {

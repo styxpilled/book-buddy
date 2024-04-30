@@ -33,3 +33,5 @@ export const preferences = persist(
 	createLocalStorage(),
 	'preferences'
 );
+
+export const recentBooks = persist(writable<string[]>([]), createLocalStorage(), 'recentBooks');

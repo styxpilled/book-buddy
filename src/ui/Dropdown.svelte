@@ -34,6 +34,8 @@
 	}
 
 	.drop-content-inner {
+		display: block;
+		width: max-content;
 		border: 1px solid var(--color);
 		padding: 0.5rem;
 	}
