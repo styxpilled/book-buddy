@@ -8,6 +8,8 @@ export type BookData = {
 	author?: string;
 };
 
+export const books = persist(writable<BookData[]>([]), createLocalStorage(), 'books');
+
 export type Label = {
 	mode: 'manual' | 'automatic';
 	value: string;
@@ -18,4 +20,14 @@ export const mainLabel = writable<Label>({
 	value: ''
 });
 
-export const books = persist(writable<BookData[]>([]), createLocalStorage(), 'books');
+export type Preferences = {
+	view: 'shelf' | 'cover';
+};
+
+export const preferences = persist(
+	writable<Preferences>({
+		view: 'cover'
+	}),
+	createLocalStorage(),
+	'preferences'
+);

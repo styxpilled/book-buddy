@@ -1,20 +1,21 @@
 <script lang="ts">
 	import type { BookData } from '$lib/stores';
+	import { fallback } from '$lib/ui';
 
 	export let book: BookData;
 </script>
 
-<li class="container interactable nomar" style:--label="'{book.title}'">
-	<a href="/book/{book.title}" class="cover-anchor">
+<a href="/book/{book.title}" class="cover-anchor">
+	<li class="container interactable nomar" style:--label="'{book.title}'">
 		<div class="spacer">
 			<div class="cover">
-				<pre class="magic">{book.cover}</pre>
-				<pre class="cover-1">{book.cover}</pre>
-				<pre class="cover-2">{book.cover}</pre>
+				<pre class="magic">{book.cover === '' ? fallback : book.cover}</pre>
+				<pre class="cover-1">{book.cover === '' ? fallback : book.cover}</pre>
+				<pre class="cover-2">{book.cover === '' ? fallback : book.cover}</pre>
 			</div>
 		</div>
-	</a>
-</li>
+	</li>
+</a>
 
 <style>
 	.magic {
@@ -46,6 +47,7 @@
 	pre {
 		display: block;
 		font-size: 0.5rem;
+		user-select: none;
 	}
 
 	.cover-1,
@@ -61,8 +63,8 @@
 		animation: scroll-2 5s linear infinite paused forwards;
 	}
 
-	div.cover:hover > .cover-1,
-	div.cover:hover > .cover-2 {
+	.cover-anchor:hover .cover-1,
+	.cover-anchor:hover .cover-2 {
 		animation-play-state: running;
 	}
 

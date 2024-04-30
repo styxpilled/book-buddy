@@ -1,13 +1,13 @@
 <script lang="ts">
-	import { books, mainLabel } from '$lib/stores';
+	import { books, mainLabel, preferences } from '$lib/stores';
 	import { chunks } from '$lib/ui';
 	import AddFile from '$ui/AddFile.svelte';
 	import Cover from '$ui/Cover.svelte';
 	import Shelf from '$ui/Shelf.svelte';
 
-	let settings = {
-		showCovers: false
-	};
+	let showCovers = $preferences.view === 'cover';
+
+	$: $preferences.view = showCovers === true ? 'cover' : 'shelf';
 
 	$mainLabel = {
 		mode: 'manual',
@@ -25,11 +25,11 @@
 	>
 	<label class="switch">
 		Show covers
-		<input type="checkbox" bind:checked={settings.showCovers} />
+		<input type="checkbox" bind:checked={showCovers} />
 	</label>
 </div>
 
-{#if settings.showCovers}
+{#if $preferences.view === 'cover'}
 	<ul class="covers">
 		{#each $books as book}
 			<Cover {book} />
