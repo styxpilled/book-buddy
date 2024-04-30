@@ -22,11 +22,13 @@ export const mainLabel = writable<Label>({
 
 export type Preferences = {
 	view: 'shelf' | 'cover';
+	booksPerShelf: number;
 };
 
 export const preferences = persist(
 	writable<Preferences>({
-		view: 'cover'
+		view: 'cover',
+		booksPerShelf: 25
 	}),
 	createLocalStorage(),
 	'preferences'

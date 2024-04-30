@@ -214,8 +214,6 @@ input[type='checkbox'] {
 .switch::before {
 	display: inline-block;
 	content: '';
-	font-weight: bolder;
-	line-height: 1rem;
 	height: 1rem;
 	width: 2.5rem;
 	margin-right: 0.5rem;

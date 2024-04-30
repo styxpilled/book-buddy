@@ -26,11 +26,16 @@
 		<span class="caret"></span>
 		<input type="text" />
 	</div>
-
-	<div class="row lg">
-		<label class="switch">
-			Switch
-			<input type="checkbox" />
-		</label>
-	</div>
+</div>
+<div class="row lg">
+	<label class="switch">
+		Switch
+		<input type="checkbox" />
+	</label>
+</div>
+<div class="row lg">
+	<label class="range">
+		<input type="range" min="5" max="40" step="5" />
+		Range
+	</label>
 </div>

@@ -1,10 +1,10 @@
 <script lang="ts">
 	import '$styles/remedy.css';
 	import '$styles/app.css';
+	import '$styles/inputs.css';
 	import '$styles/book.css';
 	import { mainLabel } from '$lib/stores';
 	import Dropdown from '$ui/Dropdown.svelte';
-	import Icon from '$ui/Icon.svelte';
 </script>
 
 <div id="root">

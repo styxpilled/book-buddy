@@ -15,7 +15,7 @@
 	};
 </script>
 
-<div class="row label">
+<div class="row label" style="gap: 1rem;">
 	<AddFile />
 	<button
 		class="btn"
@@ -27,6 +27,10 @@
 		Show covers
 		<input type="checkbox" bind:checked={showCovers} />
 	</label>
+	<label class="range">
+		<input type="range" min="5" max="40" step="5" bind:value={$preferences.booksPerShelf} />
+		Books per shelf
+	</label>
 </div>
 
 {#if $preferences.view === 'cover'}
@@ -37,7 +41,7 @@
 	</ul>
 {:else}
 	<ul class="library">
-		{#each chunks($books, 35) as chunk, row}
+		{#each chunks($books, $preferences.booksPerShelf) as chunk, row}
 			<Shelf row={chunk} />
 		{/each}
 	</ul>
