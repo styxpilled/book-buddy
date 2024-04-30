@@ -8,11 +8,7 @@
 <ul>
 	{#each row as book, i}
 		<li>
-			<ShelfBook
-				{book}
-				index={i}
-				order={i === 0 ? 'start' : i + 1 === row.length ? 'end' : 'middle'}
-			/>
+			<ShelfBook {book} index={i} end={i + 1 === row.length} />
 		</li>
 	{/each}
 </ul>

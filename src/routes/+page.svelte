@@ -47,6 +47,9 @@
 {:else}
 	<ul class="library">
 		{#each chunks($books, $preferences.booksPerShelf) as chunk, row}
+			{#if row}
+				<!--  -->
+			{/if}
 			<Shelf row={chunk} />
 		{/each}
 	</ul>

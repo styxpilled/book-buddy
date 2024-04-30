@@ -3,8 +3,16 @@
 	import '$styles/app.css';
 	import '$styles/inputs.css';
 	import '$styles/book.css';
-	import { mainLabel, recentBooks } from '$lib/stores';
+	import { books, currentBook, mainLabel, recentBooks } from '$lib/stores';
 	import Dropdown from '$ui/Dropdown.svelte';
+	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
+
+	onMount(() => {
+		if ($currentBook !== null) {
+			goto(`/book/${$currentBook.title}`);
+		}
+	});
 </script>
 
 <div id="root">
@@ -20,16 +28,11 @@
 				</ul>
 			</Dropdown>
 			<a href="/design" class="btn lg">DESIGN</a>
+			{$currentBook}
 		</nav>
 		<div class="container row lg" style:--label="'search'">
 			<span class="caret"></span>
 			<input type="text" />
-		</div>
-		<div class="row" style="font-size: 0.5rem;">
-			<!-- <Icon />
-			<Icon />
-			<Icon />
-			<Icon /> -->
 		</div>
 	</div>
 	<div

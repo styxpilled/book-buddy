@@ -8,6 +8,12 @@ export type BookData = {
 	author?: string;
 };
 
+export const currentBook = persist(
+	writable<BookData | null>(null),
+	createLocalStorage(),
+	'currentBook'
+);
+
 export const books = persist(writable<BookData[]>([]), createLocalStorage(), 'books');
 
 export type Label = {

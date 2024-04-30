@@ -107,16 +107,10 @@
 	<h3 class="inline">{id}</h3>
 	<button class="btn" on:click={prevPage}>Previous page</button>
 	<button class="btn" on:click={nextPage}>Next page</button>
+	<button class="btn" on:click={() => console.log(rendition.currentLocation())}>test</button>
 </div>
 
-<!-- Prevent browser scrolling -->
-<div
-	on:scroll|preventDefault={() => {}}
-	id="reader"
-	style:--width="{width}px"
-	style:--height="{height}px"
-	bind:this={reader}
-></div>
+<div id="reader" style:--width="{width}px" style:--height="{height}px" bind:this={reader}></div>
 
 <style>
 	#reader {
