@@ -2,7 +2,7 @@
 	import '$styles/remedy.css';
 	import '$styles/app.css';
 	import '$styles/inputs.css';
-	import '$styles/book.css';
+	// import '$styles/book.css';
 	import { currentBook, mainLabel, recentBooks } from '$lib/stores';
 	import Dropdown from '$ui/Dropdown.svelte';
 	import { onMount } from 'svelte';
