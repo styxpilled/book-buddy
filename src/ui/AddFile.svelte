@@ -21,8 +21,6 @@
 				const fileSrc = convertFileSrc(file);
 				const book = await addFile(fileSrc);
 				await book.ready;
-				// TODO: book cover
-				// coverurl gives a blob url, covert that into braille
 				const coverUrl = await book.coverUrl();
 				let cover = '';
 				if (coverUrl) {
@@ -36,12 +34,15 @@
 					// TODO: error toast
 					continue;
 				}
-				$books.push({
+				$books[title] = {
 					title,
+					src: fileSrc,
+					coverUrl,
+					// author
 					cover
-				});
-				$books = $books;
-				localStorage.setItem(title, file);
+				};
+				// $books = $books;
+				// localStorage.setItem(title, file);
 			}
 		}
 	};

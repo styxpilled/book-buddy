@@ -1,4 +1,4 @@
-import epub from 'epubjs';
+import epub from 'epubjs/src/index';
 
 export const SUPPORTED_FORMATS = ['epub'];
 

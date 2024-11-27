@@ -20,7 +20,7 @@
 	<button
 		class="btn"
 		on:click={() => {
-			$books = [];
+			$books = {};
 		}}>Clear library</button
 	>
 	<button
@@ -40,19 +40,17 @@
 </div>
 {#if $preferences.view === 'cover'}
 	<ul class="covers">
-		{#each $books as book}
-			<Cover {book} />
+		{#each Object.keys($books) as book}
+			<Cover book={$books[book]} />
 		{/each}
 	</ul>
 {:else}
-	<ul class="library">
-		{#each chunks($books, $preferences.booksPerShelf) as chunk, row}
-			{#if row}
-				<!--  -->
-			{/if}
+	TODO
+	<!-- <ul class="library">
+		{#each chunks(Object.keys($books), $preferences.booksPerShelf) as chunk, row}
 			<Shelf row={chunk} />
 		{/each}
-	</ul>
+	</ul> -->
 {/if}
 
 <style>

@@ -3,7 +3,10 @@ import { writable } from 'svelte/store';
 
 export type BookData = {
 	title: string;
+	src: string;
 	cover: string;
+	cfi?: string;
+	scroll?: number;
 	coverUrl?: string;
 	author?: string;
 };
@@ -14,7 +17,11 @@ export const currentBook = persist(
 	'currentBook'
 );
 
-export const books = persist(writable<BookData[]>([]), createLocalStorage(), 'books');
+export type BookList = {
+	[key: string]: BookData;
+};
+
+export const books = persist(writable<BookList>({}), createLocalStorage(), 'books');
 
 export type Label = {
 	mode: 'manual' | 'automatic';

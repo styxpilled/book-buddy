@@ -1,16 +1,16 @@
 <script lang="ts">
 	import { type Rendition } from 'epubjs';
 
-	// @ts-expect-error
-	import inline from 'epubjs/src/managers/views/inline';
+	// import inline from 'epubjs/src/managers/views/inline';
 
 	import { addFile } from '$lib';
 	import { open } from '@tauri-apps/api/dialog';
 	import { convertFileSrc } from '@tauri-apps/api/tauri';
 
 	import bookStyle from '$styles/book.css?url';
-	import { onMount } from 'svelte';
-	import { recentBooks } from '$lib/stores';
+	import { onDestroy, onMount } from 'svelte';
+	import { books, recentBooks, type BookData } from '$lib/stores';
+	import inline from '$lib/view';
 	// import script from '$lib/test?url';
 
 	export let id: string;
@@ -24,18 +24,16 @@
 
 	onMount(async () => {
 		recentBooks.$push(id);
-		const fileSrc = localStorage.getItem(id);
-		if (fileSrc === null) {
-			error = `Book not in library!`;
-			return;
-		}
-		const file = convertFileSrc(fileSrc);
+		// const _bookstr = localStorage.getItem(id);
+		// if (_bookstr === null) {
+		// 	error = `Book not in library!`;
+		// 	return;
+		// }
+		// const book: BookData = JSON.parse(_bookstr);
 		try {
-			const book = await addFile(file);
+			const book = await addFile($books[id].src);
 			await book.ready;
-			console.log(book);
 			book.spine.get('reader');
-			console.log(book);
 			try {
 				rendition = book.renderTo(reader, {
 					width,
@@ -48,8 +46,12 @@
 					// https://github.com/futurepress/epub.js/blob/f09089cf77c55427bfdac7e0a4fa130e373a19c8/src/managers/default/index.js#L451
 					view: inline
 				});
-				await rendition.display();
+				await rendition.display($books[id]?.cfi);
 				rendition = rendition;
+				innerReader = document.querySelector(`div[id^='epubjs-view']`) as HTMLDivElement;
+				if ($books[id].scroll) {
+					innerReader.scrollLeft = $books[id]?.scroll || 0;
+				}
 			} catch (error) {}
 		} catch (error) {
 			console.log(error);
@@ -62,10 +64,12 @@
 		if (tagName === 'input' || tagName === 'textarea') return;
 		switch (key) {
 			case 'arrowleft': {
+				e.preventDefault();
 				await prevPage();
 				break;
 			}
 			case 'arrowright': {
+				e.preventDefault();
 				await nextPage();
 				break;
 			}
@@ -84,30 +88,49 @@
 		if (innerReader.scrollLeft === previousScrollLeft) {
 			await rendition.prev();
 			innerReader = document.querySelector(`div[id^='epubjs-view']`) as HTMLDivElement;
+			innerReader.scrollLeft = innerReader.scrollWidth;
 		}
 	};
 
 	const nextPage = async () => {
+		// console.log(innerReader.scrollLeft);
+		innerReader.scrollLeft = Math.floor(innerReader.scrollLeft / 1000) * 1000;
+
 		if (innerReader?.scrollLeft === undefined) {
 			await rendition.next();
 			innerReader = document.querySelector(`div[id^='epubjs-view']`) as HTMLDivElement;
 		}
 		const previousScrollLeft = innerReader.scrollLeft;
+		innerReader.scrollLeft = Math.floor(innerReader.scrollLeft / 1000) * 1000;
 		innerReader.scrollLeft += width;
+
+		// console.log(width);
+		console.log(innerReader.scrollLeft, previousScrollLeft);
+
 		if (innerReader.scrollLeft === previousScrollLeft) {
 			await rendition.next();
 			innerReader = document.querySelector(`div[id^='epubjs-view']`) as HTMLDivElement;
+			// innerReader.scrollLeft = 200;
 		}
 	};
+
+	onDestroy(() => {
+		// @ts-expect-error this is fake news
+		$books[id].cfi = rendition.currentLocation().start.cfi;
+		$books[id].scroll = innerReader.scrollLeft;
+		// JSON.parse(localStorage.getItem(id) || 'null')
+	});
 </script>
 
 <svelte:window on:keydown={keybindHandler} />
 
-<div class="label row space-between" style="width: {Math.max(width / 2, 250)}px;">
+<div class="label row space-between">
 	<h3 class="inline">{id}</h3>
 	<button class="btn" on:click={prevPage}>Previous page</button>
 	<button class="btn" on:click={nextPage}>Next page</button>
-	<button class="btn" on:click={() => console.log(rendition.currentLocation())}>test</button>
+	<button class="btn" on:click={() => console.log(rendition.currentLocation())}>
+		{$books[id].cfi}
+	</button>
 </div>
 
 <div id="reader" style:--width="{width}px" style:--height="{height}px" bind:this={reader}></div>
@@ -162,7 +185,7 @@
 
 		& div[id^='epubjs-view'] {
 			overflow: scroll !important;
-			width: 500px;
+			/* width: 500px; */
 			height: 500px;
 			display: flex;
 			flex-wrap: wrap;
@@ -192,6 +215,20 @@
 
 		&.calibre1 {
 			overflow: scroll;
+		}
+
+		& section {
+			max-height: 100%;
+			width: 1000px;
+			display: flex;
+			flex-wrap: wrap;
+			flex-direction: column;
+			/* column-gap: 5rem; */
+
+			& > * {
+				padding: 0 5rem;
+				max-width: 1000px;
+			}
 		}
 	}
 
