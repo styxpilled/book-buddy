@@ -13,29 +13,31 @@
 	<input placeholder=" " />
 </div>
 
-<div class="row" style="gap: 1rem;">
-	<div class="row sm">
-		<span class="caret"></span>
-		<input type="text" />
-	</div>
-	<div class="row md">
-		<span class="caret"></span>
-		<input type="text" />
+<div class="container" style:--label="'Inputs'">
+	<div class="row" style="gap: 1rem;">
+		<div class="row sm">
+			<span class="caret"></span>
+			<input type="text" />
+		</div>
+		<div class="row md">
+			<span class="caret"></span>
+			<input type="text" />
+		</div>
+		<div class="row lg">
+			<span class="caret"></span>
+			<input type="text" />
+		</div>
 	</div>
 	<div class="row lg">
-		<span class="caret"></span>
-		<input type="text" />
+		<label class="switch">
+			Switch
+			<input type="checkbox" />
+		</label>
 	</div>
-</div>
-<div class="row lg">
-	<label class="switch">
-		Switch
-		<input type="checkbox" />
-	</label>
-</div>
-<div class="row lg">
-	<label class="range">
-		<input type="range" min="5" max="40" step="5" />
-		Range
-	</label>
+	<div class="row lg">
+		<label class="range">
+			<input type="range" min="5" max="40" step="5" />
+			Range
+		</label>
+	</div>
 </div>

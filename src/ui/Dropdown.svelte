@@ -1,14 +1,23 @@
-<!-- @migration-task Error while migrating Svelte code: This migration would change the name of a slot making the component unusable -->
 <script lang="ts">
-	export let style = '';
+	import type { Snippet } from 'svelte';
+
+	let {
+		style,
+		label,
+		children
+	}: {
+		style?: string;
+		label: Snippet;
+		children: Snippet;
+	} = $props();
 </script>
 
 <div class="drop-container" {style}>
-	<slot name="drop-btn" />
+	{@render label()}
 	<div class="uhuh">
 		<div class="drop-content">
 			<div class="drop-content-inner">
-				<slot />
+				{@render children()}
 			</div>
 		</div>
 	</div>

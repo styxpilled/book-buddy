@@ -2,6 +2,7 @@
 	import '$styles/remedy.css';
 	import '$styles/app.css';
 	import '$styles/inputs.css';
+	import '@fontsource/geist-mono';
 	// import '$styles/book.css';
 	import { currentBook, mainLabel, recentBooks } from '$lib/stores.svelte';
 	import Dropdown from '$ui/Dropdown.svelte';
@@ -25,8 +26,9 @@
 		<nav class="container nav" style:--label="'book-buddy'">
 			<a href="/" class="btn lg">HOME</a>
 			<Dropdown>
-				<!-- @migration-task: migrate this slot by hand, `drop-btn` is an invalid identifier -->
-				<button slot="drop-btn" class="btn lg upper"> Recently read </button>
+				{#snippet label()}
+					<button class="btn lg upper">Recently read</button>
+				{/snippet}
 				<ul>
 					{#each $recentBooks.reverse() as recent}
 						<li><a href="/book/{recent}">{recent}</a></li>
@@ -34,7 +36,7 @@
 				</ul>
 			</Dropdown>
 			<a href="/design" class="btn lg">DESIGN</a>
-			{$currentBook}
+			<a href="/settings" class="btn lg">SETTINGS</a>
 		</nav>
 		<div class="container row lg" style:--label="'search'">
 			<span class="caret"></span>
@@ -71,15 +73,5 @@
 		height: min-content;
 		width: 0;
 		display: flex;
-		/* padding: 0.5rem 0; */
-		/* max-width: 50rem; */
-		/* width: ; */
-		/* display: flex; */
-		/* width: 100%; */
-		/* width: max(50rem, 40%); */
 	}
-	/* #main {
-		font-family: monospace;
-		background-color: #181818;
-	} */
 </style>

@@ -33,6 +33,7 @@
 	},
 	"type": "module",
 	"dependencies": {
+		"@fontsource/geist-mono": "^5.1.0",
 		"@macfja/svelte-persistent-store": "^2.4.1",
 		"@tauri-apps/api": "^1.5.3",
 		"epubjs": "^0.3.93",
