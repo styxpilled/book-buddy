@@ -38,14 +38,18 @@ export type Preferences = {
 	booksPerShelf: number;
 };
 
-export const preferences = persist(
-	writable<Preferences>({
-		view: 'cover',
-		booksPerShelf: 25
-	}),
-	createLocalStorage(),
-	'preferences'
-);
+export const preferences = $state<Preferences>({
+	view: 'cover',
+	booksPerShelf: 6
+});
+// export const preferences = persist(
+// 	writable<Preferences>({
+// 		view: 'cover',
+// 		booksPerShelf: 25
+// 	}),
+// 	createLocalStorage(),
+// 	'preferences'
+// );
 
 export const createSetStore = <T>(store: PersistentStore<T[]>, maxLength: number) => {
 	const { subscribe, set, update } = store;

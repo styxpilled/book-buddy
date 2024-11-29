@@ -28,7 +28,7 @@ body {
 *::-webkit-scrollbar {
 	/* width: 0.75rem; */
 	/* height: 0.75rem; */
-	width: 24px;
+	width: 1rem;
 	height: 24px;
 	/* background-color: var(--bg-color); */
 	/* border: 14px solid white; */
@@ -201,8 +201,8 @@ input[type='checkbox'] {
 }
 
 .container {
-	padding: 14px 0.25rem;
-	margin: 1rem;
+	padding: 0.25rem 0.25rem;
+	margin: 0.75rem;
 	border: 1px solid var(--color-accent, var(--color));
 	position: relative;
 	background-color: var(--bg-color);

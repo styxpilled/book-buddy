@@ -1,13 +1,13 @@
 <script lang="ts">
-	import { books, mainLabel, preferences, recentBooks } from '$lib/stores';
+	import { books, mainLabel, preferences, recentBooks } from '$lib/stores.svelte';
 	import { chunks } from '$lib/ui';
 	import AddFile from '$ui/AddFile.svelte';
 	import Cover from '$ui/Cover.svelte';
 	import Shelf from '$ui/Shelf.svelte';
 
-	let showCovers = $preferences.view === 'cover';
+	let showCovers = $state(preferences.view === 'cover');
 
-	$: $preferences.view = showCovers === true ? 'cover' : 'shelf';
+	// preferences.view = $derived(showCovers === true ? 'cover' : 'shelf');
 
 	$mainLabel = {
 		mode: 'manual',
@@ -19,13 +19,13 @@
 	<AddFile />
 	<button
 		class="btn"
-		on:click={() => {
+		onclick={() => {
 			$books = {};
 		}}>Clear library</button
 	>
 	<button
 		class="btn"
-		on:click={() => {
+		onclick={() => {
 			$recentBooks = [];
 		}}>Clear recent</button
 	>
@@ -34,20 +34,20 @@
 		<input type="checkbox" bind:checked={showCovers} />
 	</label>
 	<label class="range">
-		<input type="range" min="5" max="40" step="5" bind:value={$preferences.booksPerShelf} />
+		<input type="range" min="5" max="40" step="5" bind:value={preferences.booksPerShelf} />
 		Books per shelf
 	</label>
 </div>
-{#if $preferences.view === 'cover'}
+{#if preferences.view === 'cover'}
 	<ul class="covers">
-		{#each Object.keys($books) as book}
+		{#each Object.keys($books).sort() as book}
 			<Cover book={$books[book]} />
 		{/each}
 	</ul>
 {:else}
 	TODO
 	<!-- <ul class="library">
-		{#each chunks(Object.keys($books), $preferences.booksPerShelf) as chunk, row}
+		{#each chunks(Object.keys($books), preferences.booksPerShelf) as chunk, row}
 			<Shelf row={chunk} />
 		{/each}
 	</ul> -->

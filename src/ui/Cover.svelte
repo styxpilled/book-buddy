@@ -1,8 +1,12 @@
 <script lang="ts">
-	import type { BookData } from '$lib/stores';
+	import type { BookData } from '$lib/stores.svelte';
 	import { fallback } from '$lib/ui';
 
-	export let book: BookData;
+	interface Props {
+		book: BookData;
+	}
+
+	let { book }: Props = $props();
 </script>
 
 <a href="/book/{book.title}" class="cover-anchor">

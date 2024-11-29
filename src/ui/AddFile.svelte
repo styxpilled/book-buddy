@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { addFile } from '$lib';
 	import { canvasToText, createImageCanvas } from '$lib/braille';
-	import { books } from '$lib/stores';
+	import { books } from '$lib/stores.svelte';
 	import { open } from '@tauri-apps/api/dialog';
 	import { convertFileSrc } from '@tauri-apps/api/tauri';
 
@@ -48,4 +48,4 @@
 	};
 </script>
 
-<button class="btn" on:click={getBooks}>Add books</button>
+<button class="btn" onclick={getBooks}>Add books</button>

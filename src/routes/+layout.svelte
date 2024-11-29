@@ -3,10 +3,15 @@
 	import '$styles/app.css';
 	import '$styles/inputs.css';
 	// import '$styles/book.css';
-	import { currentBook, mainLabel, recentBooks } from '$lib/stores';
+	import { currentBook, mainLabel, recentBooks } from '$lib/stores.svelte';
 	import Dropdown from '$ui/Dropdown.svelte';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
+	interface Props {
+		children?: import('svelte').Snippet;
+	}
+
+	let { children }: Props = $props();
 
 	onMount(() => {
 		if ($currentBook !== null) {
@@ -20,10 +25,11 @@
 		<nav class="container nav" style:--label="'book-buddy'">
 			<a href="/" class="btn lg">HOME</a>
 			<Dropdown>
+				<!-- @migration-task: migrate this slot by hand, `drop-btn` is an invalid identifier -->
 				<button slot="drop-btn" class="btn lg upper"> Recently read </button>
 				<ul>
-					{#each $recentBooks as recent}
-						<li><a href="book/{recent}">{recent}</a></li>
+					{#each $recentBooks.reverse() as recent}
+						<li><a href="/book/{recent}">{recent}</a></li>
 					{/each}
 				</ul>
 			</Dropdown>
@@ -41,21 +47,18 @@
 		class:manual={$mainLabel.mode === 'manual'}
 		style:--label="'{$mainLabel.value}'"
 	>
-		<slot />
+		{@render children?.()}
 	</div>
 </div>
 
 <style>
 	#root {
-		width: auto;
-		display: inline-block;
+		/* width: auto; */
+		/* display: inline-block; */
 		flex-direction: column;
 	}
 
 	#main {
-		width: max-content;
-		min-width: max(50rem, 40%);
-		min-height: 10rem;
 	}
 
 	.uhuh {

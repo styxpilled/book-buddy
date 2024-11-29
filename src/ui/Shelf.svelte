@@ -1,8 +1,12 @@
 <script lang="ts">
-	import type { BookData } from '$lib/stores';
+	import type { BookData } from '$lib/stores.svelte';
 	import ShelfBook from './ShelfBook.svelte';
 
-	export let row: BookData[];
+	interface Props {
+		row: BookData[];
+	}
+
+	let { row }: Props = $props();
 </script>
 
 <ul>

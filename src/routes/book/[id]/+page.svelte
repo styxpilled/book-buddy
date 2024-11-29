@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { currentBook, mainLabel } from '$lib/stores';
+	import { currentBook, mainLabel } from '$lib/stores.svelte';
 	import Reader from '$ui/Reader.svelte';
 	import { onMount } from 'svelte';
 

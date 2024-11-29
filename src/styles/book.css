@@ -10,4 +10,8 @@ body {
 			height: 1rem;
 		}
 	}
+
+	/* img {
+		filter: invert();
+	} */
 }
