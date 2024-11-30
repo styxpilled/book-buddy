@@ -13,11 +13,11 @@
 </script>
 
 <div class="drop-container" {style}>
-	{@render label()}
+	{@render label?.()}
 	<div class="uhuh">
 		<div class="drop-content">
 			<div class="drop-content-inner">
-				{@render children()}
+				{@render children?.()}
 			</div>
 		</div>
 	</div>

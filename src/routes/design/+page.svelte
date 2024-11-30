@@ -1,16 +1,13 @@
-<h1>Welcome to SvelteKit</h1>
+<h1>Header 1</h1>
+<h2>Header 2</h2>
+<h3>Header 3</h3>
+<h4>Header 4-6</h4>
 
 <div class="row">
-	<button class="btn">Test No Style</button>
-	<button class="btn sm">Test No Style</button>
-	<button class="btn md">Test No Style</button>
-	<button class="btn lg">Test No Style</button>
-</div>
-<div class="row">
-	<input class="blink-block" />
-	<input placeholder="Text is required" />
-	<input placeholder=" " value="This one is valid" />
-	<input placeholder=" " />
+	<button class="btn">btn Sample Text</button>
+	<button class="btn sm">btn sm Sample Text</button>
+	<button class="btn md">btn md Sample Text</button>
+	<button class="btn lg">btn lg Sample Text</button>
 </div>
 
 <div class="container" style:--label="'Inputs'">
@@ -41,3 +38,4 @@
 		</label>
 	</div>
 </div>
+<span class="loading">This is loading...</span>

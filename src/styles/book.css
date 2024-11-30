@@ -1,6 +1,6 @@
 body {
 	color: whitesmoke;
-	font-family: 'Geist Mono', monospace;
+	font-family: 'Mono', monospace;
 	font-size: 1.25rem;
 
 	& br {

@@ -23,8 +23,20 @@
 			},
 			"dialog": {
 				"all": true
+			},
+			"window": {
+				"all": false,
+				"close": true,
+				"hide": true,
+				"show": true,
+				"maximize": true,
+				"minimize": true,
+				"unmaximize": true,
+				"unminimize": true,
+				"startDragging": true
 			}
 		},
+
 		"bundle": {
 			"active": true,
 			"category": "DeveloperTool",
@@ -70,7 +82,8 @@
 				"height": 600,
 				"resizable": true,
 				"title": "book-buddy",
-				"width": 800
+				"width": 800,
+				"decorations": false
 			}
 		]
 	}

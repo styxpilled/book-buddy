@@ -1,7 +1,11 @@
 html,
 body {
 	margin: 0;
-	height: 100%;
+	/* height: 100vh; */
+}
+
+html {
+	overflow: hidden;
 }
 
 :root {
@@ -82,10 +86,6 @@ body {
 	&:disabled {
 		border-color: var(--color-disabled) !important;
 	}
-}
-
-*:not(.label) > .btn {
-	margin-top: 0.5rem;
 }
 
 .sm {
@@ -206,17 +206,20 @@ input[type='checkbox'] {
 
 .container {
 	padding: 0.25rem 0.25rem;
-	margin: 0.75rem;
+	margin: 0.25rem;
 	border: 2px solid var(--color-accent, var(--color-inactive));
 	position: relative;
 	background-color: var(--bg-color);
-
-	/* &:hover {
-		 --color-accent: #4cba3c; 
-	} */
+	padding-top: calc(0.5rem);
 
 	&.nomar {
 		margin: 0;
+	}
+
+	&.outter {
+		margin-top: calc(-0.5rem + -2px);
+		margin-bottom: calc(-0.25rem + -2px);
+		outline: var(--bg-color) solid 4px;
 	}
 
 	&:hover {
@@ -234,22 +237,39 @@ input[type='checkbox'] {
 	}
 
 	&:not(.manual)::before,
-	& > .label {
+	& > .label,
+	& > .proxy > .label {
 		z-index: 5;
 		text-indent: 0;
 		position: absolute;
 		font-size: 1rem;
 		text-align: center;
-		top: -0.75rem;
-		left: 1ch;
+		top: -1.25rem;
+		left: 0.5ch;
 		background-color: var(--bg-color);
-		padding: 0 0.5rem;
+		padding: 0 0.25rem;
 		content: var(--label);
-		color: var(--color-accent, var(--color));
+		color: var(--color-accent, var(--color-inactive));
 	}
 
-	& > .label {
-		top: -1.375rem;
+	&:not(.manual):hover::before,
+	&:hover > .label,
+	&:hover > .proxy > .label {
+		color: var(--color);
+	}
+
+	& > .label.right {
+		left: unset;
+		right: 0.5ch;
+	}
+
+	& > .label:has(.btn) {
+		top: -1.25rem;
+	}
+
+	&.low:not(.manual)::before,
+	& > .label.low {
+		top: -0.75rem;
 	}
 }
 
@@ -265,4 +285,45 @@ input[type='checkbox'] {
 
 .upper {
 	text-transform: uppercase;
+}
+
+.loading::before {
+	content: ' ';
+	animation: spinner-dots 1000ms linear infinite forwards;
+}
+
+@keyframes spinner-dots {
+	0% {
+		content: '⠋';
+	}
+	10% {
+		content: '⠙';
+	}
+	20% {
+		content: '⠹';
+	}
+	30% {
+		content: '⠸';
+	}
+	40% {
+		content: '⠼';
+	}
+	50% {
+		content: '⠴';
+	}
+	60% {
+		content: '⠦';
+	}
+	70% {
+		content: '⠧';
+	}
+	80% {
+		content: '⠇';
+	}
+	90% {
+		content: '⠏';
+	}
+	100% {
+		content: '⠏';
+	}
 }
