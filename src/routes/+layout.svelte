@@ -2,6 +2,7 @@
 	import '$styles/remedy.css';
 	import '$styles/app.css';
 	import '$styles/inputs.css';
+	import '$styles/animations.css';
 	import '@fontsource/geist-mono';
 	// import '$styles/book.css';
 	import { currentBook, mainLabel, recentBooks } from '$lib/stores.svelte';
@@ -21,6 +22,7 @@
 	});
 
 	import { appWindow } from '@tauri-apps/api/window';
+	import { labels } from '$lib/labels.svelte';
 </script>
 
 <div data-tauri-drag-region class="titlebar">
@@ -55,12 +57,16 @@
 </div>
 <div
 	id="root"
-	class="container"
+	class="container pad"
 	class:manual={$mainLabel.mode === 'manual'}
 	style:--label="'{$mainLabel.value}'"
 >
-	<div id="main" class="proxy">{@render children?.()}</div>
+	{@render labels.root?.()}
+	<div id="main" class="proxy">
+		{@render children?.()}
+	</div>
 </div>
+<div></div>
 
 <style>
 	.titlebar {
@@ -77,14 +83,15 @@
 	}
 
 	#root {
-		height: calc(100dvh - 5rem);
+		height: calc(100vh - 5.75rem);
 		flex-direction: column;
-		margin-top: 5rem;
+		margin-top: 5.5rem;
 	}
 
 	#main {
-		overflow: scroll;
-		height: calc(100dvh - 4rem);
+		overflow-y: scroll;
+		overflow-x: hidden;
+		height: calc(100vh - 7.5rem);
 	}
 
 	nav.container.nav {
@@ -92,6 +99,6 @@
 		height: min-content;
 		width: 0;
 		display: flex;
-		border-bottom: none;
+		/* border-bottom: none; */
 	}
 </style>

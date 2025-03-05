@@ -13,9 +13,9 @@
 	<li class="container interactable nomar" style:--label="'{book.title}'">
 		<div class="spacer">
 			<div class="cover">
-				<pre class="magic">{book.cover === '' ? fallback : book.cover}</pre>
-				<pre class="cover-1">{book.cover === '' ? fallback : book.cover}</pre>
-				<pre class="cover-2">{book.cover === '' ? fallback : book.cover}</pre>
+				<pre class="magic">{book.cover || fallback}</pre>
+				<pre class="cover-1">{book.cover || fallback}</pre>
+				<pre class="cover-2">{book.cover || fallback}</pre>
 			</div>
 		</div>
 	</li>

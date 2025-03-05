@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { labels } from '$lib/labels.svelte';
 	import { books, mainLabel, preferences, recentBooks } from '$lib/stores.svelte';
 	import { chunks } from '$lib/ui';
 	import AddFile from '$ui/AddFile.svelte';
@@ -7,50 +8,57 @@
 
 	let showCovers = $state(preferences.view === 'cover');
 
-	// preferences.view = $derived(showCovers === true ? 'cover' : 'shelf');
+	$effect(() => {
+		preferences.view = showCovers === true ? 'cover' : 'shelf';
+	});
 
 	$mainLabel = {
 		mode: 'manual',
 		value: 'Books'
 	};
+	labels.root = root;
 </script>
 
-<div class="row label" style="gap: 1rem;">
-	<AddFile />
-	<button
-		class="btn"
-		onclick={() => {
-			$books = {};
-		}}>Clear library</button
-	>
-	<button
-		class="btn"
-		onclick={() => {
-			$recentBooks = [];
-		}}>Clear recent</button
-	>
-	<label class="switch">
-		Show covers
-		<input type="checkbox" bind:checked={showCovers} />
-	</label>
-	<label class="range">
-		<input type="range" min="5" max="40" step="5" bind:value={preferences.booksPerShelf} />
-		Books per shelf
-	</label>
-</div>
+{#snippet root()}
+	<div class="row label" style="gap: 0.5rem;">
+		<AddFile />
+		<button
+			class="btn"
+			onclick={() => {
+				$books = {};
+			}}>Clear library</button
+		>
+		<button
+			class="btn"
+			onclick={() => {
+				$recentBooks = [];
+			}}>Clear recent</button
+		>
+		<label class="switch">
+			Show covers
+			<input type="checkbox" bind:checked={showCovers} />
+		</label>
+		<label class="range">
+			<input type="range" min="5" max="40" step="5" bind:value={preferences.booksPerShelf} />
+			Books per shelf
+		</label>
+	</div>
+{/snippet}
 {#if preferences.view === 'cover'}
 	<ul class="covers">
 		{#each Object.keys($books).sort() as book}
+			<!-- {JSON.stringify($books[book])} -->
 			<Cover book={$books[book]} />
 		{/each}
 	</ul>
 {:else}
-	TODO
-	<!-- <ul class="library">
+	<ul class="library">
 		{#each chunks(Object.keys($books), preferences.booksPerShelf) as chunk, row}
-			<Shelf row={chunk} />
+			{@const r = chunk.map((book) => $books[book])}
+			<!-- {JSON.stringify(r)} -->
+			<Shelf row={r} />
 		{/each}
-	</ul> -->
+	</ul>
 {/if}
 
 <style>
@@ -59,7 +67,7 @@
 		gap: 1rem;
 		padding: 1rem 1rem 0.5rem;
 		flex-wrap: wrap;
-		max-width: 85rem;
+		/* max-width: 85rem; */
 	}
 
 	ul.library {
