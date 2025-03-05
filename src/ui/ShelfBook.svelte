@@ -21,10 +21,12 @@
 
 <a href="/book/{book.title}">
 	<Dropdown style="position: absolute; --index: {index * 2.25}rem; left: var(--index);">
-		<!-- @migration-task: migrate this slot by hand, `drop-btn` is an invalid identifier -->
-		<pre slot="drop-btn" class="book-shelf" style:--index="{0}rem">{end
-				? bookEndSegment(book.title)
-				: bookSegment(book.title)}</pre>
+		{#snippet label()}
+			<pre class="book-shelf" style:--index="{0}rem">{end
+					? bookEndSegment(book.title)
+					: bookSegment(book.title)}
+          </pre>
+		{/snippet}
 		<div>
 			<h3>
 				{book.title}

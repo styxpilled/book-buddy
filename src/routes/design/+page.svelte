@@ -39,3 +39,15 @@
 	</div>
 </div>
 <span class="loading">This is loading...</span>
+<div class="blink block">Blink</div>
+<div class="stroke block">Stroke</div>
+<div class="block-in block">Block-in</div>
+
+<div></div>
+
+<style>
+	.block {
+		height: 4rem;
+		width: 4rem;
+	}
+</style>

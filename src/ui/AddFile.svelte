@@ -20,8 +20,11 @@
 			for (let file of files) {
 				const fileSrc = convertFileSrc(file);
 				const book = await addFile(fileSrc);
-				await book.ready;
-				const coverUrl = await book.coverUrl();
+				console.log(book);
+
+				const coverUrl = await book?.getCover();
+				console.log(coverUrl);
+
 				let cover = '';
 				if (coverUrl) {
 					const canvas = await createImageCanvas(coverUrl);
@@ -29,7 +32,9 @@
 					// settings.last_dithering = null;
 					cover = canvasToText(canvas);
 				}
-				const title = book?.packaging?.metadata?.title;
+				const title = book?.metadata?.title;
+				console.log(title);
+
 				if (title === undefined) {
 					// TODO: error toast
 					continue;
@@ -37,10 +42,11 @@
 				$books[title] = {
 					title,
 					src: fileSrc,
-					coverUrl,
+					// coverUrl,
 					// author
 					cover
 				};
+
 				// $books = $books;
 				// localStorage.setItem(title, file);
 			}

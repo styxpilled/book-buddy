@@ -1,0 +1,89 @@
+.blink {
+	/* animation: blink 250ms 5 steps(2); */
+	animation: blink 200ms 2 steps(1);
+	/* background-color: var(--color); */
+}
+
+.blink:hover {
+	animation-iteration-count: infinite;
+}
+
+@keyframes blink {
+	0% {
+		background-color: var(--bg-color);
+	}
+	50% {
+		color: var(--bg-color);
+		background-color: var(--color);
+	}
+}
+
+.stroke {
+	animation: stroke 500ms 2 steps(9);
+}
+
+.stroke:hover {
+	animation-iteration-count: infinite;
+}
+
+@keyframes stroke {
+	0%,
+	40%,
+	80% {
+		background-color: var(--bg-color);
+		border: 2px solid var(--color);
+	}
+
+	10%,
+	30% {
+		background-color: var(--bg-color);
+		border: 2px solid var(--bg-color);
+	}
+
+	20%,
+	60%,
+	100% {
+		color: var(--bg-color);
+		background-color: var(--color);
+		border: 2px solid var(--bg-color);
+	}
+}
+
+.block-in {
+	position: relative;
+	z-index: 5;
+}
+
+.block-in::before {
+	position: absolute;
+	/* z-index: -1; */
+	content: '';
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	height: 100%;
+	width: 100%;
+	animation: block-in 250ms 1 steps(2);
+	pointer-events: none;
+}
+
+.block-in:hover::before {
+	animation-iteration-count: infinite;
+}
+
+@keyframes block-in {
+	0% {
+		/* background-color: var(--color); */
+		height: 40%;
+		width: 40%;
+		backdrop-filter: invert(1);
+	}
+	50% {
+		height: 100%;
+		width: 100%;
+		/* background-color: var(--color); */
+	}
+	100% {
+		backdrop-filter: invert(1);
+	}
+}

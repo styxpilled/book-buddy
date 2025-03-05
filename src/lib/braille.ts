@@ -2,7 +2,7 @@ export const WIDTH = 64;
 export const HEIGHT = 64;
 export const GRAYSCALE_MODE: 'luminance' | 'lightness' | 'average' | 'value' = 'luminance';
 
-export function createImageCanvas(src: string): Promise<HTMLCanvasElement> {
+export function createImageCanvas(blob: Blob | string): Promise<HTMLCanvasElement> {
 	return new Promise((resolve, reject) => {
 		const canvas = document.createElement('CANVAS') as HTMLCanvasElement;
 		const image = new Image();
@@ -38,8 +38,11 @@ export function createImageCanvas(src: string): Promise<HTMLCanvasElement> {
 			ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
 			resolve(canvas);
 		};
-
-		image.src = src;
+		if (typeof blob === 'string') {
+			image.src = blob;
+		} else {
+			image.src = URL.createObjectURL(blob);
+		}
 	});
 }
 
