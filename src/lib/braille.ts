@@ -58,7 +58,8 @@ function pixelsToCharacter(pixels_lo_hi: number[]) {
 	//  && settings.monospace === false
 	if (codepoint_offset === 0) {
 		//pixels were all blank
-		codepoint_offset = 4; //0x2800 is a blank braille char, 0x2804 is a single dot
+		// codepoint_offset = 4;
+		//0x2800 is a blank braille char, 0x2804 is a single dot
 	}
 	return String.fromCharCode(0x2800 + codepoint_offset);
 }
@@ -98,7 +99,6 @@ export function canvasToText(canvas: HTMLCanvasElement) {
 	// @ts-expect-error yeah it's fine actually don't worry about it
 	image_data = new Uint8Array(ctx.getImageData(0, 0, width, height).data.buffer);
 	// }
-
 	let output = '';
 
 	for (let imgy = 0; imgy < height; imgy += 4) {
@@ -108,7 +108,8 @@ export function canvasToText(canvas: HTMLCanvasElement) {
 			for (let x = 0; x < 2; x++) {
 				for (let y = 0; y < 4; y++) {
 					const index = (imgx + x + width * (imgy + y)) * 4;
-					const pixel_data = image_data.slice(index, index + 4); //ctx.getImageData(imgx+x,imgy+y,1,1).data
+					const pixel_data = image_data.slice(index, index + 4);
+					//ctx.getImageData(imgx+x,imgy+y,1,1).data
 					if (pixel_data[3] >= 128) {
 						//account for alpha
 						const grey = toGreyscale(pixel_data[0], pixel_data[1], pixel_data[2]);

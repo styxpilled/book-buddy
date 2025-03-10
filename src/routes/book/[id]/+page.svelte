@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { currentBook, mainLabel } from '$lib/stores.svelte';
+	import { mainLabel } from '$lib/stores.svelte';
 	import Reader from '$ui/Reader.svelte';
 	import { onMount } from 'svelte';
 
@@ -11,7 +11,7 @@
 	onMount(() => {
 		// $currentBook = JSON.parse(localStorage.getItem(id) || 'null');
 		return () => {
-			$currentBook = null;
+			// $currentBook = null;
 		};
 	});
 </script>

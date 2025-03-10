@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@fontsource/commit-mono':
+        specifier: ^5.2.5
+        version: 5.2.5
       '@fontsource/geist-mono':
         specifier: ^5.1.0
         version: 5.1.0
@@ -244,6 +247,9 @@ packages:
   '@eslint/js@8.57.0':
     resolution: {integrity: sha512-Ys+3g2TaW7gADOJzPt83SJtCDhMjndcDMFVQ/Tj9iA1BfJzFKD9mAUXT3OenpuPHbI6P/myECxRJrofUsDx/5g==}
     engines: {node: ^12.22.0 || ^14.17.0 || >=16.0.0}
+
+  '@fontsource/commit-mono@5.2.5':
+    resolution: {integrity: sha512-htX8yQWtiPt5L1Hzh4sirvfUJT2+KYiquDB/Q2sY2tWQYplpBUOD5zHnIM3k36Hnm4V+JIIqA/wmwupSQ68WjA==}
 
   '@fontsource/geist-mono@5.1.0':
     resolution: {integrity: sha512-MDFgmKUdDbV357vD2bOZAro597Nd2md01GAdr3GSZteCJQdPT/UhHUBCAxl9KUiH03aMPFM9Rx7x8/EtrJmpKg==}
@@ -1505,6 +1511,8 @@ snapshots:
       - supports-color
 
   '@eslint/js@8.57.0': {}
+
+  '@fontsource/commit-mono@5.2.5': {}
 
   '@fontsource/geist-mono@5.1.0': {}
 

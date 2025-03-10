@@ -4,38 +4,64 @@
 	import '$styles/inputs.css';
 	import '$styles/animations.css';
 	import '@fontsource/geist-mono';
+	import '@fontsource/commit-mono';
 	// import '$styles/book.css';
 	import { currentBook, mainLabel, recentBooks } from '$lib/stores.svelte';
 	import Dropdown from '$ui/Dropdown.svelte';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { appWindow } from '@tauri-apps/api/window';
+	import { labels } from '$lib/labels.svelte';
+	import { listen } from '@tauri-apps/api/event';
+	import { addBooks } from '$lib';
+
 	interface Props {
 		children?: import('svelte').Snippet;
 	}
+	addBooks;
 
 	let { children }: Props = $props();
+	let pulse = $state(false);
 
 	onMount(() => {
-		if ($currentBook !== null) {
-			goto(`/book/${$currentBook.title}`);
+		if (currentBook !== null) {
+			// goto(`/book/${currentBook.title}`);
 		}
 	});
 
-	import { appWindow } from '@tauri-apps/api/window';
-	import { labels } from '$lib/labels.svelte';
+	listen('tauri://file-drop-hover', () => {
+		$mainLabel.value = 'adding-books';
+		pulse = true;
+	});
+
+	listen('tauri://file-drop-cancelled', () => {
+		$mainLabel.value = '';
+		pulse = false;
+	});
+
+	listen('tauri://file-drop', (event) => {
+		if (Array.isArray(event.payload)) {
+			addBooks(event.payload);
+		}
+	});
 </script>
 
 <div data-tauri-drag-region class="titlebar">
-	<nav data-tauri-drag-region class="container nav low" style:--label="'book-buddy'">
+	<nav
+		data-tauri-drag-region
+		class="container nav low"
+		class:pulse
+		style:--label="'{$mainLabel.value || 'book-buddy'}'"
+	>
 		<a href="/" class="btn lg">HOME</a>
 		<Dropdown>
 			{#snippet label()}
 				<button class="btn lg upper">Recently read</button>
 			{/snippet}
 			<ul>
-				{#each $recentBooks.reverse() as recent}
+				<!-- {#each $recentBooks.reverse() as recent}
 					<li><a href="/book/{recent}">{recent}</a></li>
-				{/each}
+				{/each} -->
 			</ul>
 		</Dropdown>
 		<a href="/design" class="btn lg">DESIGN</a>
@@ -58,6 +84,7 @@
 <div
 	id="root"
 	class="container pad"
+	class:pulse
 	class:manual={$mainLabel.mode === 'manual'}
 	style:--label="'{$mainLabel.value}'"
 >

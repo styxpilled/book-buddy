@@ -33,6 +33,7 @@
 	},
 	"type": "module",
 	"dependencies": {
+		"@fontsource/commit-mono": "^5.2.5",
 		"@fontsource/geist-mono": "^5.1.0",
 		"@macfja/svelte-persistent-store": "^2.4.1",
 		"@tauri-apps/api": "^1.5.3",

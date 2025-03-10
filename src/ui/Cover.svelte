@@ -9,13 +9,13 @@
 	let { book }: Props = $props();
 </script>
 
-<a href="/book/{book.title}" class="cover-anchor">
+<a href="/book/{book.metadata.identifier}" class="cover-anchor">
 	<li class="container interactable nomar" style:--label="'{book.title}'">
-		<div class="spacer">
+		<div class="spacer" style="--steps: {((book.cover || fallback).match(/\n/g) || []).length}">
 			<div class="cover">
 				<pre class="magic">{book.cover || fallback}</pre>
 				<pre class="cover-1">{book.cover || fallback}</pre>
-				<pre class="cover-2">{book.cover || fallback}</pre>
+				<!-- <pre class="cover-2">{book.cover || fallback}</pre> -->
 			</div>
 		</div>
 	</li>
@@ -24,6 +24,7 @@
 <style>
 	.magic {
 		visibility: hidden;
+		color: transparent;
 	}
 
 	.cover-anchor {
@@ -37,6 +38,7 @@
 		align-items: center;
 		width: 25rem;
 		height: 34rem;
+		overflow: hidden;
 	}
 
 	div.cover {
@@ -48,10 +50,12 @@
 		overflow: hidden;
 	}
 
-	pre {
+	.cover > pre {
 		display: block;
 		font-size: 0.5rem;
 		user-select: none;
+		font-family: 'Commit Mono';
+		letter-spacing: 1.25px;
 	}
 
 	.cover-1,
@@ -60,11 +64,35 @@
 	}
 
 	.cover-1 {
-		animation: scroll-1 5s linear infinite paused forwards;
+		top: 0;
+		filter: brightness(2);
+		/* animation: scroll-1 5s steps(var(--steps)) infinite paused forwards; */
+	}
+
+	.cover-anchor:hover > .container {
+		border-style: dashed;
+		animation: pulse-border 1.5s linear infinite;
+	}
+
+	.cover-anchor:hover > .container::before {
+		animation: pulse-color 1.5s linear infinite;
 	}
 
 	.cover-2 {
-		animation: scroll-2 5s linear infinite paused forwards;
+		animation: pulse 1.5s linear infinite;
+		/* animation: scroll-2 5s steps(var(--steps)) infinite paused forwards; */
+	}
+
+	@keyframes p-br {
+		0% {
+			border-style: dashed;
+		}
+		50% {
+			border-style: solid;
+		}
+		100% {
+			border-style: dashed;
+		}
 	}
 
 	.cover-anchor:hover .cover-1,

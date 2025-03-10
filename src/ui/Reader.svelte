@@ -6,7 +6,7 @@
 
 	import bookStyle from '$styles/book.css?inline';
 	import { onDestroy, onMount } from 'svelte';
-	import { books, recentBooks, type BookData } from '$lib/stores.svelte';
+	import { l, recentBooks, type BookData } from '$lib/stores.svelte';
 	import type { View } from '$lib/foliate-js/view.js';
 	import { canvasToText, createImageCanvas } from '$lib/braille';
 	import { labels } from '$lib/labels.svelte';
@@ -25,12 +25,15 @@
 		src: string;
 	}>(null);
 	let locationLabel = $state('');
+	let search = $state('');
 
 	onMount(async () => {
-		recentBooks.$push(id);
-		await view.open($books[id].src);
+		// recentBooks.$push(id);
+		console.log(l.books[id]);
+
+		await view.open(l.books[id].src);
 		// await view.next();
-		await view.goTo($books[id].cfi || 0);
+		await view.goTo(l.books[id]?.cfi || 0);
 	});
 
 	const keybindHandler = async (e: KeyboardEvent) => {
@@ -90,13 +93,33 @@
 	<div class="label row space-between">
 		<button class="btn" onclick={prevPage}>Previous page</button>
 		<button class="btn" onclick={nextPage}>Next page</button>
+		<input
+			bind:value={search}
+			oninput={async (e) => {
+				for await (const t of view.search({
+					query: search,
+					index: null,
+					matchCase: false,
+					matchWholeWords: true
+				})) {
+					console.log(t);
+					// console.log(view.searchResults);
+				}
+				// const t = await view
+				// 	.search({
+				// 		query: search
+				// 	})
+				// 	.next();
+				// console.log(t);
+			}}
+		/>
 	</div>
 	<div class="label row center">
-		<h3 class="inline">{id}</h3>
+		<h3 class="inline">{l.books[id].title}</h3>
 	</div>
 	<div class="label right low">
 		<span>{locationLabel}</span>
-		<span>{$books[id].cfi}</span>
+		<span>{l.books[id]?.cfi}</span>
 	</div>
 {/snippet}
 
@@ -107,7 +130,7 @@
 		const percent = percentFormat.format(fraction);
 		const loc = pageItem ? `Page ${pageItem.label}` : `Loc ${location.current}`;
 		locationLabel = `${percent} · ${loc}`;
-		$books[id].cfi = detail.cfi;
+		l.books[id].cfi = detail.cfi;
 	}}
 	onload={(e: { detail: { doc: Document } }) => {
 		const { doc } = e.detail;
@@ -116,6 +139,13 @@
 		doc.head.append(style);
 		doc.addEventListener('keydown', keybindHandler);
 		doc.addEventListener('mouseup', mouseHandler);
+		doc.addEventListener('wheel', async (e) => {
+			if (e.deltaY > 0) {
+				await nextPage();
+			} else {
+				await prevPage();
+			}
+		});
 	}}
 ></foliate-view>
 <div
@@ -129,7 +159,7 @@
 			const canvas = await createImageCanvas(showing.src);
 			// settings.last_canvas = canvas;
 			// settings.last_dithering = null;
-			$books[id].cover = canvasToText(canvas);
+			l.books[id].cover = canvasToText(canvas);
 		}}>Use as Cover</button
 	>
 </div>

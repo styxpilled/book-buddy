@@ -1,27 +1,45 @@
-import { persist, createLocalStorage, type PersistentStore } from '@macfja/svelte-persistent-store';
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import type { Book } from '$lib';
 import { writable } from 'svelte/store';
 
 export type BookData = {
 	title: string;
 	src: string;
 	cover: string;
+	metadata: Book['metadata'];
 	cfi?: string;
 	scroll?: number;
 	coverUrl?: string;
 	author?: string;
 };
 
-export const currentBook = persist(
-	writable<BookData | null>(null),
-	createLocalStorage(),
-	'currentBook'
-);
+// export const currentBook = persist(
+// 	writable<BookData | null>(null),
+// 	createLocalStorage(),
+// 	'currentBook'
+// );
+
+export const currentBook = null;
 
 export type BookList = {
 	[key: string]: BookData;
 };
 
-export const books = persist(writable<BookList>({}), createLocalStorage(), 'books');
+// export const books = persist(writable<BookList>({}), createLocalStorage(), 'books');
+
+export const l = new (class Library {
+	books = persisted<{
+		[key: string]: BookData;
+	}>('books', {});
+
+	constructor() {}
+
+	clear() {
+		for (const key in this.books) {
+			delete this.books[key];
+		}
+	}
+})();
 
 export type Label = {
 	mode: 'manual' | 'automatic';
@@ -51,28 +69,35 @@ export const preferences = $state<Preferences>({
 // 	'preferences'
 // );
 
-export const createSetStore = <T>(store: PersistentStore<T[]>, maxLength: number) => {
-	const { subscribe, set, update } = store;
+function persisted<T>(key: string, fallback: T): T {
+	const stored = readLocalStorage(key, fallback);
+	const state = $state(stored);
+	localStorage.setItem(key, JSON.stringify(state));
+	$effect.root(() => {
+		console.log(state);
+		$effect(() => {
+			localStorage.setItem(key, JSON.stringify(state));
+		});
+	});
+	return state;
+}
 
-	return {
-		subscribe,
-		update,
-		$push: (v: T) =>
-			update((arr) => {
-				const index = arr.indexOf(v);
-				if (index !== -1) {
-					arr.splice(index, 1);
-				} else if (arr.length > maxLength) {
-					arr.shift();
-				}
-				arr.push(v);
-				return arr;
-			}),
-		set
-	};
-};
+function readLocalStorage<T>(key: string, fallback: T): T {
+	const res = localStorage.getItem(key);
+	if (res === null) return fallback;
+	else {
+		try {
+			return { ...fallback, ...JSON.parse(res) };
+		} catch (error) {
+			console.error(error);
+			return fallback;
+		}
+	}
+}
 
-export const recentBooks = createSetStore(
-	persist(writable<string[]>([]), createLocalStorage(), 'recentBooks'),
-	15
-);
+export const recentBooks = [];
+
+// export const recentBooks = createSetStore(
+// 	persist(writable<string[]>([]), createLocalStorage(), 'recentBooks'),
+// 	15
+// );

@@ -335,3 +335,35 @@ input[type='checkbox'] {
 		content: '⠏';
 	}
 }
+
+.pulse {
+	animation: pulse-border 1500ms ease-in-out infinite;
+}
+
+.pulse::before {
+	animation: pulse-color 1500ms ease-in-out infinite;
+}
+
+@keyframes pulse-border {
+	0% {
+		border-color: var(--color-inactive);
+	}
+	50% {
+		border-color: var(--color);
+	}
+	100% {
+		border-color: var(--color-inactive);
+	}
+}
+
+@keyframes pulse-color {
+	0% {
+		color: var(--color-inactive);
+	}
+	50% {
+		color: var(--color);
+	}
+	100% {
+		color: var(--color-inactive);
+	}
+}

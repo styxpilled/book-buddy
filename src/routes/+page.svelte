@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { labels } from '$lib/labels.svelte';
-	import { books, mainLabel, preferences, recentBooks } from '$lib/stores.svelte';
+	import { l, preferences, recentBooks } from '$lib/stores.svelte';
 	import { chunks } from '$lib/ui';
 	import AddFile from '$ui/AddFile.svelte';
 	import Cover from '$ui/Cover.svelte';
@@ -12,10 +12,6 @@
 		preferences.view = showCovers === true ? 'cover' : 'shelf';
 	});
 
-	$mainLabel = {
-		mode: 'manual',
-		value: 'Books'
-	};
 	labels.root = root;
 </script>
 
@@ -25,13 +21,13 @@
 		<button
 			class="btn"
 			onclick={() => {
-				$books = {};
+				l.clear();
 			}}>Clear library</button
 		>
 		<button
 			class="btn"
 			onclick={() => {
-				$recentBooks = [];
+				// $recentBooks = [];
 			}}>Clear recent</button
 		>
 		<label class="switch">
@@ -39,22 +35,21 @@
 			<input type="checkbox" bind:checked={showCovers} />
 		</label>
 		<label class="range">
-			<input type="range" min="5" max="40" step="5" bind:value={preferences.booksPerShelf} />
+			<input type="range" min="5" max="40" step="1" bind:value={preferences.booksPerShelf} />
 			Books per shelf
 		</label>
 	</div>
 {/snippet}
 {#if preferences.view === 'cover'}
 	<ul class="covers">
-		{#each Object.keys($books).sort() as book}
-			<!-- {JSON.stringify($books[book])} -->
-			<Cover book={$books[book]} />
+		{#each Object.keys(l.books).sort() as book}
+			<Cover book={l.books[book]} />
 		{/each}
 	</ul>
 {:else}
 	<ul class="library">
-		{#each chunks(Object.keys($books), preferences.booksPerShelf) as chunk, row}
-			{@const r = chunk.map((book) => $books[book])}
+		{#each chunks(Object.keys(l.books), preferences.booksPerShelf) as chunk, row}
+			{@const r = chunk.map((book) => l.books[book])}
 			<!-- {JSON.stringify(r)} -->
 			<Shelf row={r} />
 		{/each}

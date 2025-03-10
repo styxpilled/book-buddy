@@ -6,10 +6,10 @@ export function* chunks<T>(arr: T[], n: number): Generator<T[], void> {
 
 const getLettersFromTitle = (input: string) => {
 	let letters = [];
-	const words = input.split(' ');
+	const words = input.split(' ').slice(0, 3);
 	letters = words.map((word) =>
 		word
-			.substring(0, Math.floor(9 / words.length))
+			.substring(0, Math.floor(9 / Math.min(words.length, 9)))
 			.toUpperCase()
 			.split('')
 	);
