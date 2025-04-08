@@ -26,6 +26,7 @@
 	}>(null);
 	let locationLabel = $state('');
 	let search = $state('');
+	let searchBar = $state() as HTMLInputElement;
 
 	onMount(async () => {
 		// recentBooks.$push(id);
@@ -49,6 +50,17 @@
 			case 'arrowright': {
 				e.preventDefault();
 				await view.next();
+				break;
+			}
+			case 'f': {
+				e.preventDefault();
+				searchBar.focus();
+				break;
+			}
+			case 'p': {
+				if (e.ctrlKey) {
+					e.preventDefault();
+				}
 				break;
 			}
 			default:
@@ -90,11 +102,15 @@
 <svelte:window onkeydown={keybindHandler} />
 
 {#snippet root()}
-	<div class="label row space-between">
+	<div class="label low row space-between">
 		<button class="btn" onclick={prevPage}>Previous page</button>
 		<button class="btn" onclick={nextPage}>Next page</button>
-		<input
+		<!-- <input
 			bind:value={search}
+			bind:this={searchBar}
+			class="btn"
+			type="search"
+			placeholder="Search..."
 			oninput={async (e) => {
 				for await (const t of view.search({
 					query: search,
@@ -112,23 +128,27 @@
 				// 	.next();
 				// console.log(t);
 			}}
-		/>
+		/> -->
 	</div>
-	<div class="label row center">
-		<h3 class="inline">{l.books[id].title}</h3>
+	<div class="label row center" style="top: -1rem;">
+		<h2 class="inline">{l.books[id].title}</h2>
 	</div>
 	<div class="label right low">
 		<span>{locationLabel}</span>
-		<span>{l.books[id]?.cfi}</span>
+		<!-- <span>{l.books[id]?.cfi}</span> -->
 	</div>
 {/snippet}
 
 <foliate-view
 	bind:this={view}
 	onrelocate={({ detail }: any) => {
+		console.log(detail);
+
 		const { fraction, location, tocItem, pageItem } = detail;
 		const percent = percentFormat.format(fraction);
-		const loc = pageItem ? `Page ${pageItem.label}` : `Loc ${location.current}`;
+		const loc = pageItem
+			? `Page ${pageItem.label}`
+			: `Location ${location.current}/${location.total}`;
 		locationLabel = `${percent} · ${loc}`;
 		l.books[id].cfi = detail.cfi;
 	}}

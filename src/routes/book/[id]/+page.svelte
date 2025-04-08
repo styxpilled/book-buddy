@@ -17,3 +17,15 @@
 </script>
 
 <Reader {id} />
+
+<style>
+	:global(#root:has(foliate-view):hover) {
+		border-color: var(--color-inactive);
+	}
+	:global(#root:has(foliate-view):hover > .label) {
+		color: var(--color-inactive);
+	}
+	:global(#root:has(foliate-view) > .label:hover) {
+		color: var(--color);
+	}
+</style>

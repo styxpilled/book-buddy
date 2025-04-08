@@ -21,7 +21,7 @@ input[type='range'] {
 }
 
 input[type='range']:focus-visible {
-	outline: var(--color) 1px solid;
+	outline: var(--color-inactive) 1px solid;
 	outline-offset: 1px;
 }
 
@@ -30,10 +30,10 @@ input[type='range']::-webkit-slider-thumb {
 	height: 1rem;
 	width: 1rem;
 	cursor: pointer;
-	background: var(--color);
+	background: var(--color-inactive);
 	border-radius: 0;
 	/* different color before the thumb */
-	box-shadow: -80px 0 0 80px var(--color);
+	box-shadow: -80px 0 0 80px var(--color-inactive);
 }
 
 input[type='range']::-webkit-slider-runnable-track {
@@ -42,11 +42,11 @@ input[type='range']::-webkit-slider-runnable-track {
 	cursor: pointer;
 	background: transparent;
 	border-radius: 0;
-	border: 1px solid var(--color);
+	border: 1px solid var(--color-inactive);
 }
 
 input[type='range']:focus::-webkit-slider-thumb {
-	background: var(--color);
-	box-shadow: -80px 0 0 80px var(--color);
+	background: var(--color-inactive);
+	box-shadow: -80px 0 0 80px var(--color-inactive);
 }
 /* </ --- RANGE --- > */

@@ -14,6 +14,7 @@
 	import { labels } from '$lib/labels.svelte';
 	import { listen } from '@tauri-apps/api/event';
 	import { addBooks } from '$lib';
+	import CommandBar from '$ui/CommandBar.svelte';
 
 	interface Props {
 		children?: import('svelte').Snippet;
@@ -53,23 +54,24 @@
 		class:pulse
 		style:--label="'{$mainLabel.value || 'book-buddy'}'"
 	>
-		<a href="/" class="btn lg">HOME</a>
-		<Dropdown>
-			{#snippet label()}
-				<button class="btn lg upper">Recently read</button>
-			{/snippet}
-			<ul>
-				<!-- {#each $recentBooks.reverse() as recent}
-					<li><a href="/book/{recent}">{recent}</a></li>
-				{/each} -->
-			</ul>
-		</Dropdown>
-		<a href="/design" class="btn lg">DESIGN</a>
-		<a href="/settings" class="btn lg">SETTINGS</a>
-		<div class="container row outter lg low" style:--label="'search'">
-			<span class="caret"></span>
-			<input type="text" />
+		<div class="row">
+			<a href="/" class="btn lg">HOME</a>
+			<Dropdown>
+				{#snippet label()}
+					<button class="btn lg upper">Recently read</button>
+				{/snippet}
+				<ul>
+					<!-- {#each $recentBooks.reverse() as recent}
+            <li><a href="/book/{recent}">{recent}</a></li>
+          {/each} -->
+				</ul>
+			</Dropdown>
+			<a href="/design" class="btn lg">DESIGN</a>
+			<a href="/settings" class="btn lg">SETTINGS</a>
+			<a href="/help" class="btn lg">HELP</a>
 		</div>
+		<CommandBar />
+		<div class="dummy"></div>
 		<div class="label right low">
 			<button class="btn" id="titlebar-minimize" onclick={() => appWindow.minimize()}>
 				minimize
@@ -110,9 +112,10 @@
 	}
 
 	#root {
-		height: calc(100vh - 5.75rem);
+		height: calc(100vh - 5.25rem);
 		flex-direction: column;
-		margin-top: 5.5rem;
+		margin-top: 4.85rem;
+		z-index: 100;
 	}
 
 	#main {
@@ -123,9 +126,11 @@
 
 	nav.container.nav {
 		flex-grow: 1;
+		/* width: 100%; */
 		height: min-content;
-		width: 0;
+		/* width: 0; */
 		display: flex;
+		/* justify-content: space-between; */
 		/* border-bottom: none; */
 	}
 </style>

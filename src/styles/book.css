@@ -1,8 +1,14 @@
-body {
-	color: whitesmoke;
-	font-family: 'Mono', monospace;
-	font-size: 1.5rem !important;
+@font-face {
+	font-family: 'Source Code Pro';
+	src: local('Source Code Pro Medium');
+}
 
+body {
+	color: rgb(211, 210, 210);
+	/* font-family: 'Mono', 'Source Code Pro', cursive; */
+	font-family: 'Roboto Mono';
+	/* font-family: monospace; */
+	font-size: 1.25rem !important;
 	& br {
 		height: 1rem;
 
@@ -14,4 +20,8 @@ body {
 	/* img {
 		filter: invert();
 	} */
+}
+
+*::selection {
+	background-color: rgb(43, 60, 101);
 }

@@ -19,6 +19,34 @@ export type BookData = {
 // 	'currentBook'
 // );
 
+export const commands = new (class Commands {
+	#raw = $state('');
+	mode: 'search text' | 'search library' | 'command' = $state('search library');
+	commandbar = $state() as HTMLInputElement;
+	set raw(str) {
+		if (str.startsWith('>')) {
+			this.mode = 'command';
+		} else if (str.startsWith('@')) {
+			this.mode = 'search text';
+		} else {
+			this.mode = 'search library';
+		}
+		this.#raw = str;
+
+		switch (this.mode) {
+			case 'search text':
+				// TODO: implement search
+				break;
+
+			default:
+				break;
+		}
+	}
+	get raw() {
+		return this.#raw;
+	}
+})();
+
 export const currentBook = null;
 
 export type BookList = {

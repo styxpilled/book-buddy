@@ -16,7 +16,7 @@
 </script>
 
 {#snippet root()}
-	<div class="row label" style="gap: 0.5rem;">
+	<div class="row label low" style="gap: 0.5rem;">
 		<AddFile />
 		<button
 			class="btn"
@@ -38,6 +38,7 @@
 			<input type="range" min="5" max="40" step="1" bind:value={preferences.booksPerShelf} />
 			Books per shelf
 		</label>
+		<button class="btn">Button</button>
 	</div>
 {/snippet}
 {#if preferences.view === 'cover'}
