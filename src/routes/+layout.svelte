@@ -6,7 +6,7 @@
 	import '@fontsource/geist-mono';
 	import '@fontsource/commit-mono';
 	// import '$styles/book.css';
-	import { currentBook, mainLabel, recentBooks } from '$lib/stores.svelte';
+	import { currentBook, l, mainLabel } from '$lib/stores.svelte';
 	import Dropdown from '$ui/Dropdown.svelte';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
@@ -61,9 +61,18 @@
 					<button class="btn lg upper">Recently read</button>
 				{/snippet}
 				<ul>
-					<!-- {#each $recentBooks.reverse() as recent}
-            <li><a href="/book/{recent}">{recent}</a></li>
-          {/each} -->
+					{#each l.recent.toReversed() as recent}
+						{@const book = l.books[recent]}
+						<li>
+							<a href="/book/{recent}">
+								/book/{recent}
+								{book.title}
+								{#if book.author}
+									- {book.author}
+								{/if}
+							</a>
+						</li>
+					{/each}
 				</ul>
 			</Dropdown>
 			<a href="/design" class="btn lg">DESIGN</a>
@@ -73,7 +82,8 @@
 		<CommandBar />
 		<div class="dummy"></div>
 		<div class="label right low">
-			<button class="btn" id="titlebar-minimize" onclick={() => appWindow.minimize()}>
+			<button class="btn" id="titlebar-minimize"
+      on:click={} onclick={() => appWindow.minimize()}>
 				minimize
 			</button>
 			<button class="btn" id="titlebar-maximize" onclick={() => appWindow.toggleMaximize()}>
@@ -115,7 +125,7 @@
 		height: calc(100vh - 5.25rem);
 		flex-direction: column;
 		margin-top: 4.85rem;
-		z-index: 100;
+		/* z-index: 100; */
 	}
 
 	#main {

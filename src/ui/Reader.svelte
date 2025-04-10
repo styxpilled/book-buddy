@@ -6,7 +6,7 @@
 
 	import bookStyle from '$styles/book.css?inline';
 	import { onDestroy, onMount } from 'svelte';
-	import { l, recentBooks, type BookData } from '$lib/stores.svelte';
+	import { commands, l, type BookData } from '$lib/stores.svelte';
 	import type { View } from '$lib/foliate-js/view.js';
 	import { canvasToText, createImageCanvas } from '$lib/braille';
 	import { labels } from '$lib/labels.svelte';
@@ -29,8 +29,9 @@
 	let searchBar = $state() as HTMLInputElement;
 
 	onMount(async () => {
-		// recentBooks.$push(id);
-		console.log(l.books[id]);
+		const index = l.recent.indexOf(id);
+		if (index !== -1) l.recent.splice(index, 1);
+		l.recent.push(id);
 
 		await view.open(l.books[id].src);
 		// await view.next();
@@ -60,6 +61,7 @@
 			case 'p': {
 				if (e.ctrlKey) {
 					e.preventDefault();
+					commands.commandbar.focus();
 				}
 				break;
 			}

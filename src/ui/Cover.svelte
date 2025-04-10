@@ -45,7 +45,7 @@
 		width: max-content;
 		height: max-content;
 		padding: 0.5rem;
-		line-height: 0.7rem;
+		/* line-height: 1; */
 		position: relative;
 		overflow: hidden;
 	}

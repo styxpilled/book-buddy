@@ -3,10 +3,14 @@
 
 	let {
 		style,
+		clamp = false,
+		align = 'left',
 		label,
 		children
 	}: {
 		style?: string;
+		clamp?: boolean;
+		align?: 'left' | 'center';
 		label: Snippet;
 		children: Snippet;
 	} = $props();
@@ -14,11 +18,9 @@
 
 <div class="drop-container" {style}>
 	{@render label?.()}
-	<div class="uhuh">
-		<div class="drop-content">
-			<div class="drop-content-inner">
-				{@render children?.()}
-			</div>
+	<div class="drop-content" class:clamp class:align>
+		<div class="drop-content-inner" class:clamp>
+			{@render children?.()}
 		</div>
 	</div>
 </div>
@@ -27,27 +29,37 @@
 	.drop-container {
 		display: flex;
 		flex-direction: row;
-	}
-
-	.uhuh {
 		position: relative;
 	}
 
-	.drop-container:hover > .uhuh > .drop-content {
+	.drop-container:hover > .drop-content,
+	.drop-container:focus-within > .drop-content {
 		display: block;
 		position: absolute;
-		z-index: 10;
-		/* left: 0.25rem; */
-		top: 0;
+		z-index: 120;
+		top: 100%;
 		background-color: var(--bg-color);
-		padding: 0.5rem;
+		padding: 0.25rem;
+	}
+
+	.drop-content:global(.center) {
+		left: 50%;
+		transform: translate(-50%);
 	}
 
 	.drop-content-inner {
 		display: block;
 		width: max-content;
-		border: 1px solid var(--color);
+		border: 2px solid var(--color-inactive);
 		padding: 0.5rem;
+	}
+
+	.clamp {
+		max-width: 100%;
+	}
+
+	.drop-content-inner:hover {
+		border-color: var(--color);
 	}
 
 	.drop-content {

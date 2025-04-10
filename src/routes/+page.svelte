@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { labels } from '$lib/labels.svelte';
-	import { l, preferences, recentBooks } from '$lib/stores.svelte';
+	import { l, preferences } from '$lib/stores.svelte';
 	import { chunks } from '$lib/ui';
 	import AddFile from '$ui/AddFile.svelte';
 	import Cover from '$ui/Cover.svelte';
@@ -27,7 +27,7 @@
 		<button
 			class="btn"
 			onclick={() => {
-				// $recentBooks = [];
+				l.recent = [];
 			}}>Clear recent</button
 		>
 		<label class="switch">

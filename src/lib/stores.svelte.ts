@@ -22,14 +22,20 @@ export type BookData = {
 export const commands = new (class Commands {
 	#raw = $state('');
 	mode: 'search text' | 'search library' | 'command' = $state('search library');
+	query = $state('');
+
 	commandbar = $state() as HTMLInputElement;
+
 	set raw(str) {
 		if (str.startsWith('>')) {
 			this.mode = 'command';
+			this.query = str.substring(1);
 		} else if (str.startsWith('@')) {
 			this.mode = 'search text';
+			this.query = str.substring(1);
 		} else {
 			this.mode = 'search library';
+			this.query = str;
 		}
 		this.#raw = str;
 
@@ -59,6 +65,7 @@ export const l = new (class Library {
 	books = persisted<{
 		[key: string]: BookData;
 	}>('books', {});
+	recent = persisted<string[]>('recent', []);
 
 	constructor() {}
 
@@ -99,10 +106,12 @@ export const preferences = $state<Preferences>({
 
 function persisted<T>(key: string, fallback: T): T {
 	const stored = readLocalStorage(key, fallback);
+	console.log(stored);
+
 	const state = $state(stored);
 	localStorage.setItem(key, JSON.stringify(state));
 	$effect.root(() => {
-		console.log(state);
+		$state.snapshot(state);
 		$effect(() => {
 			localStorage.setItem(key, JSON.stringify(state));
 		});
@@ -115,7 +124,11 @@ function readLocalStorage<T>(key: string, fallback: T): T {
 	if (res === null) return fallback;
 	else {
 		try {
-			return { ...fallback, ...JSON.parse(res) };
+			const item = JSON.parse(res);
+			if (Array.isArray(item)) {
+				return item as T;
+			}
+			return { ...fallback, ...item };
 		} catch (error) {
 			console.error(error);
 			return fallback;
@@ -123,7 +136,7 @@ function readLocalStorage<T>(key: string, fallback: T): T {
 	}
 }
 
-export const recentBooks = [];
+// export const recentBooks = [];
 
 // export const recentBooks = createSetStore(
 // 	persist(writable<string[]>([]), createLocalStorage(), 'recentBooks'),
