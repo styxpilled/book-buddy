@@ -1,0 +1,380 @@
+use std::fs::{self, File};
+use std::io::{ErrorKind, Write};
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+
+pub const VERSION: u32 = 1;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Library {
+    pub version: u32,
+    /// Watched folders, scanned for books on startup.
+    #[serde(default)]
+    pub folders: Vec<PathBuf>,
+    #[serde(default)]
+    pub last_book: Option<String>,
+    #[serde(default)]
+    pub books: Vec<BookEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BookEntry {
+    pub id: String,
+    pub path: PathBuf,
+    /// File size and modified time when `id` was calculated.
+    pub size: u64,
+    pub modified: DateTime<Utc>,
+    pub title: String,
+    pub author: String,
+    pub added: DateTime<Utc>,
+    #[serde(default)]
+    pub last_opened: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub position: Position,
+    #[serde(default)]
+    pub percent: f32,
+    #[serde(default)]
+    pub hidden: bool,
+    #[serde(default)]
+    pub missing: bool,
+}
+
+/// A spine index, and a character offset into the text of that chapter.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Position {
+    pub spine: usize,
+    pub offset: usize,
+}
+
+/// What the library knows about a book file when it is opened.
+pub struct FileInfo {
+    pub id: String,
+    pub path: PathBuf,
+    pub size: u64,
+    pub modified: DateTime<Utc>,
+    pub title: String,
+    pub author: String,
+}
+
+impl Default for Library {
+    fn default() -> Self {
+        Self {
+            version: VERSION,
+            folders: Vec::new(),
+            last_book: None,
+            books: Vec::new(),
+        }
+    }
+}
+
+impl Library {
+    /// A missing file gives an empty library. A file that is not valid JSON is
+    /// renamed to `.bad`, so that a save does not overwrite it.
+    pub fn load(path: &Path) -> Result<Self> {
+        let text = match fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Self::default()),
+            Err(e) => return Err(e).with_context(|| format!("cannot read {}", path.display())),
+        };
+        match serde_json::from_str(&text) {
+            Ok(library) => Ok(library),
+            Err(e) => {
+                let bad = path.with_extension("json.bad");
+                log::error!(
+                    "{} is not valid ({e}). It is moved to {}.",
+                    path.display(),
+                    bad.display()
+                );
+                fs::rename(path, &bad)?;
+                Ok(Self::default())
+            }
+        }
+    }
+
+    /// Writes a temp file and renames it, so the file is never half written.
+    pub fn save(&self, path: &Path) -> Result<()> {
+        if let Some(dir) = path.parent() {
+            fs::create_dir_all(dir)?;
+        }
+        let temp = path.with_extension("json.tmp");
+        let mut file = File::create(&temp)?;
+        serde_json::to_writer_pretty(&mut file, self)?;
+        file.flush()?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&temp, path).with_context(|| format!("cannot write {}", path.display()))
+    }
+
+    pub fn book(&self, id: &str) -> Option<&BookEntry> {
+        self.books.iter().find(|b| b.id == id)
+    }
+
+    pub fn book_mut(&mut self, id: &str) -> Option<&mut BookEntry> {
+        self.books.iter_mut().find(|b| b.id == id)
+    }
+
+    /// Finds the entry for a file, or adds one, and makes it the last opened book.
+    pub fn open(&mut self, info: FileInfo, now: DateTime<Utc>) -> &mut BookEntry {
+        let index = self.upsert(info, now);
+        self.last_book = Some(self.books[index].id.clone());
+        let entry = &mut self.books[index];
+        entry.last_opened = Some(now);
+        entry
+    }
+
+    /// Finds the entry for a file, or adds one.
+    pub fn add(&mut self, info: FileInfo, now: DateTime<Utc>) -> &mut BookEntry {
+        let index = self.upsert(info, now);
+        &mut self.books[index]
+    }
+
+    /// Matches by path first. A file with a new path matches by ID only an
+    /// entry whose file is gone, so that two copies of a book stay two entries.
+    fn upsert(&mut self, info: FileInfo, now: DateTime<Utc>) -> usize {
+        let found = self
+            .books
+            .iter()
+            .position(|b| same_path(&b.path, &info.path))
+            .or_else(|| {
+                self.books
+                    .iter()
+                    .position(|b| b.id == info.id && !b.path.exists())
+            });
+        match found {
+            Some(index) => {
+                let entry = &mut self.books[index];
+                if self.last_book.as_deref() == Some(entry.id.as_str()) {
+                    self.last_book = Some(info.id.clone());
+                }
+                entry.id = info.id;
+                entry.path = info.path;
+                entry.size = info.size;
+                entry.modified = info.modified;
+                entry.title = info.title;
+                entry.author = info.author;
+                entry.missing = false;
+                index
+            }
+            None => {
+                self.books.push(BookEntry {
+                    id: info.id,
+                    path: info.path,
+                    size: info.size,
+                    modified: info.modified,
+                    title: info.title,
+                    author: info.author,
+                    added: now,
+                    last_opened: None,
+                    position: Position::default(),
+                    percent: 0.,
+                    hidden: false,
+                    missing: false,
+                });
+                self.books.len() - 1
+            }
+        }
+    }
+
+    /// True if an entry has this path, size and modified time, so its ID is
+    /// still correct and the file need not be hashed again.
+    pub fn unchanged(&self, path: &Path, size: u64, modified: DateTime<Utc>) -> bool {
+        self.books.iter().any(|b| {
+            !b.missing && b.size == size && b.modified == modified && same_path(&b.path, path)
+        })
+    }
+
+    /// Sets `missing` from the file system. Returns true if an entry changed.
+    pub fn update_missing(&mut self) -> bool {
+        let mut changed = false;
+        for book in &mut self.books {
+            let missing = !book.path.exists();
+            changed |= book.missing != missing;
+            book.missing = missing;
+        }
+        changed
+    }
+
+    pub fn in_folder(&self, path: &Path) -> bool {
+        let path = path.to_string_lossy().to_lowercase();
+        self.folders.iter().any(|folder| {
+            let folder = folder.to_string_lossy().to_lowercase();
+            let folder = folder.trim_end_matches(['\\', '/']);
+            path.strip_prefix(folder)
+                .is_some_and(|rest| rest.starts_with(['\\', '/']))
+        })
+    }
+
+    /// A book in a watched folder would come back on the next scan, so it is
+    /// hidden. Other books are removed. Returns the removed entry.
+    pub fn remove(&mut self, id: &str) -> Option<BookEntry> {
+        let index = self.books.iter().position(|b| b.id == id)?;
+        if self.in_folder(&self.books[index].path) {
+            self.books[index].hidden = true;
+            return None;
+        }
+        if self.last_book.as_deref() == Some(id) {
+            self.last_book = None;
+        }
+        Some(self.books.remove(index))
+    }
+}
+
+/// Windows paths are not case sensitive.
+fn same_path(a: &Path, b: &Path) -> bool {
+    a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("book-buddy-test-{}-{name}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn time(seconds: i64) -> DateTime<Utc> {
+        DateTime::from_timestamp(seconds, 0).unwrap()
+    }
+
+    fn info(id: &str, path: &str) -> FileInfo {
+        FileInfo {
+            id: id.into(),
+            path: path.into(),
+            size: 10,
+            modified: time(100),
+            title: "Title".into(),
+            author: "Author".into(),
+        }
+    }
+
+    #[test]
+    fn missing_file_is_an_empty_library() {
+        let dir = temp_dir("missing");
+        assert_eq!(
+            Library::load(&dir.join("library.json")).unwrap(),
+            Library::default()
+        );
+    }
+
+    #[test]
+    fn save_and_load() {
+        let dir = temp_dir("roundtrip");
+        let path = dir.join("data").join("library.json");
+        let mut library = Library::default();
+        library
+            .open(info("a", "C:\\Books\\a.epub"), time(200))
+            .position = Position {
+            spine: 3,
+            offset: 42,
+        };
+        library.save(&path).unwrap();
+        assert_eq!(Library::load(&path).unwrap(), library);
+        assert!(!path.with_extension("json.tmp").exists());
+    }
+
+    #[test]
+    fn invalid_file_is_moved_aside() {
+        let dir = temp_dir("invalid");
+        let path = dir.join("library.json");
+        fs::write(&path, "{ not json").unwrap();
+        assert_eq!(Library::load(&path).unwrap(), Library::default());
+        assert!(!path.exists());
+        assert_eq!(
+            fs::read_to_string(path.with_extension("json.bad")).unwrap(),
+            "{ not json"
+        );
+    }
+
+    #[test]
+    fn open_matches_by_path_then_id() {
+        let mut library = Library::default();
+        let added = library.open(info("a", "C:\\Books\\a.epub"), time(200));
+        added.position = Position {
+            spine: 1,
+            offset: 5,
+        };
+        assert_eq!(added.added, time(200));
+
+        let same_path = library.open(info("a2", "c:\\books\\A.epub"), time(300));
+        assert_eq!(same_path.id, "a2");
+        assert_eq!(
+            same_path.position,
+            Position {
+                spine: 1,
+                offset: 5
+            }
+        );
+        assert_eq!(same_path.added, time(200));
+        assert_eq!(same_path.last_opened, Some(time(300)));
+
+        let moved = library.open(info("a2", "D:\\Moved\\a.epub"), time(400));
+        assert_eq!(moved.path, PathBuf::from("D:\\Moved\\a.epub"));
+        assert_eq!(
+            moved.position,
+            Position {
+                spine: 1,
+                offset: 5
+            }
+        );
+
+        library.open(info("b", "D:\\b.epub"), time(500));
+        assert_eq!(library.books.len(), 2);
+        assert_eq!(library.last_book.as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn a_copy_of_a_book_is_a_second_entry() {
+        let dir = temp_dir("copy");
+        let first = dir.join("first.epub");
+        fs::write(&first, "x").unwrap();
+        let mut library = Library::default();
+        library.add(info("a", first.to_str().unwrap()), time(100));
+        library.add(info("a", "D:\\copy.epub"), time(200));
+        assert_eq!(library.books.len(), 2);
+        assert_eq!(library.books[0].path, first);
+    }
+
+    #[test]
+    fn unchanged_and_missing() {
+        let dir = temp_dir("missing-files");
+        let present = dir.join("present.epub");
+        fs::write(&present, "x").unwrap();
+        let mut library = Library::default();
+        library.add(info("a", present.to_str().unwrap()), time(100));
+        library.add(info("b", "D:\\gone.epub"), time(100));
+        assert!(library.unchanged(&present, 10, time(100)));
+        assert!(!library.unchanged(&present, 11, time(100)));
+        assert!(!library.unchanged(&present, 10, time(101)));
+
+        assert!(library.update_missing());
+        assert!(!library.books[0].missing);
+        assert!(library.books[1].missing);
+        assert!(!library.update_missing());
+
+        library.add(info("b", "D:\\found.epub"), time(300));
+        assert_eq!(library.books.len(), 2);
+        assert!(!library.books[1].missing);
+    }
+
+    #[test]
+    fn remove_hides_books_in_watched_folders() {
+        let mut library = Library::default();
+        library.folders.push("D:\\Books\\".into());
+        library.add(info("a", "d:\\books\\sub\\a.epub"), time(100));
+        library.add(info("b", "D:\\Books2\\b.epub"), time(100));
+        library.last_book = Some("b".into());
+
+        assert_eq!(library.remove("a"), None);
+        assert!(library.books[0].hidden);
+        assert_eq!(library.remove("b").map(|b| b.id), Some("b".into()));
+        assert_eq!(library.books.len(), 1);
+        assert_eq!(library.last_book, None);
+    }
+}

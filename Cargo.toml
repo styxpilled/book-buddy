@@ -1,0 +1,44 @@
+[package]
+name = "book-buddy"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+gpui = { package = "gpui-pre", version = "=0.3.1" }
+gpui-kit = "=0.6.1"
+# gpui-component 0.6.1 does not compile with gpui-component-macros 0.6.6.
+gpui-component-macros = "=0.6.1"
+anyhow = "=1.0.104"
+chrono = { version = "=0.4.45", default-features = false, features = ["clock", "serde", "std"] }
+ego-tree = "=0.11.0"
+env_logger = "=0.11.11"
+futures = "=0.3.34"
+image = { version = "=0.25.10", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
+log = "=0.4.34"
+percent-encoding = "=2.3.2"
+quick-xml = { version = "=0.42.0", features = ["escape-html"] }
+rbook = { version = "=0.7.12", default-features = false, features = ["threadsafe"] }
+scraper = "=0.27.0"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+
+# Only for sim. gpui_platform is the version gpui-kit pins. Its test-support
+# turns on `Window::render_to_image` in the Windows renderer.
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.1", optional = true }
+raw-window-handle = { version = "=0.6.2", optional = true }
+windows = { version = "=0.62.2", optional = true, features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_UI_WindowsAndMessaging"] }
+
+[features]
+sim = [
+    "gpui/test-support",
+    "dep:gpui_platform",
+    "gpui_platform/test-support",
+    "dep:raw-window-handle",
+    "dep:windows",
+    "windows/Win32_Graphics_Gdi",
+    "windows/Win32_System_Pipes",
+]
+
+# gpui-pre-macros 0.3.1 does not compile without debug assertions.
+[profile.release.package.gpui-pre-macros]
+debug-assertions = true
