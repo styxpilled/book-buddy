@@ -11,11 +11,14 @@ use book_buddy::book::{Block, BlockKind, Book, Chapter, Marker, Run};
 use book_buddy::library::{FileInfo, Position};
 use chrono::Utc;
 use gpui::{
-    AnyElement, App, AppContext, BorrowAppContext, Context, EventEmitter, FocusHandle, Focusable,
-    FontStyle, FontWeight, HighlightStyle, Hsla, InteractiveElement, IntoElement, ListAlignment,
-    ListOffset, ListState, ParentElement, Render, RenderImage, SharedString, Styled, StyledText,
-    Subscription, Task, UnderlineStyle, Window, div, img, list, px, relative,
+    AnyElement, App, AppContext, BorrowAppContext, Context, Entity, EventEmitter, FocusHandle,
+    Focusable, FontStyle, FontWeight, HighlightStyle, Hsla, InteractiveElement, InteractiveText,
+    IntoElement, KeyBinding, ListAlignment, ListOffset, ListState, MouseMoveEvent, ParentElement,
+    Render, RenderImage, ScrollStrategy, SharedString, StatefulInteractiveElement, Styled,
+    StyledText, Subscription, Task, UnderlineStyle, UniformListScrollHandle, Window, actions, div,
+    img, list, prelude::FluentBuilder, px, relative, uniform_list,
 };
+use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
 use gpui_kit::component::{ActiveTheme, Theme};
 use image::imageops::FilterType;
 use image::{Frame, ImageReader};
@@ -27,6 +30,7 @@ use crate::store::Store;
 const SERIF: &str = "Literata";
 const MONO: &str = "Consolas";
 const FONT_SIZE: f32 = 18.;
+const LINE_HEIGHT: f32 = FONT_SIZE * 1.5;
 const HEADING_SCALE: [f32; 6] = [1.8, 1.5, 1.3, 1.15, 1.0, 1.0];
 const COLUMN_WIDTH: f32 = 720.;
 const MARGIN: f32 = 32.;
@@ -35,8 +39,48 @@ const DECODED_IMAGES: usize = 16;
 /// Longest side of a decoded image, in pixels.
 const IMAGE_MAX: u32 = 2048;
 const SAVE_DELAY: Duration = Duration::from_secs(1);
+const TOP_BAR_HEIGHT: f32 = 40.;
+/// The top bar shows when the pointer is this close to the top of the window.
+const TOP_EDGE: f32 = 12.;
+const BOTTOM_BAR_HEIGHT: f32 = 36.;
+const TOC_WIDTH: f32 = 320.;
+const TOC_ROW_HEIGHT: f32 = 30.;
+
+actions!(
+    reader,
+    [
+        PageDown,
+        PageUp,
+        LineDown,
+        LineUp,
+        ChapterStart,
+        ChapterEnd,
+        BookStart,
+        BookEnd,
+        ToggleToc,
+        GoBack,
+    ]
+);
 
 pub fn init(cx: &mut App) {
+    let context = Some("Reader");
+    cx.bind_keys([
+        KeyBinding::new("right", PageDown, context),
+        KeyBinding::new("pagedown", PageDown, context),
+        KeyBinding::new("space", PageDown, context),
+        KeyBinding::new("left", PageUp, context),
+        KeyBinding::new("pageup", PageUp, context),
+        KeyBinding::new("shift-space", PageUp, context),
+        KeyBinding::new("down", LineDown, context),
+        KeyBinding::new("up", LineUp, context),
+        KeyBinding::new("home", ChapterStart, context),
+        KeyBinding::new("end", ChapterEnd, context),
+        KeyBinding::new("ctrl-home", BookStart, context),
+        KeyBinding::new("ctrl-end", BookEnd, context),
+        KeyBinding::new("t", ToggleToc, context),
+        KeyBinding::new("alt-left", GoBack, context),
+    ]);
+
     let fonts: [&'static [u8]; 8] = [
         include_bytes!("../assets/fonts/Literata-Regular.ttf"),
         include_bytes!("../assets/fonts/Literata-Bold.ttf"),
@@ -107,6 +151,23 @@ impl Item {
                 .map(move |(range, run)| (range.clone(), highlight(run, link))),
         )
     }
+
+    /// The text, with a click handler on each link.
+    fn text(&self, ix: usize, theme: &Theme, view: Entity<Reader>) -> AnyElement {
+        let (ranges, hrefs): (Vec<_>, Vec<_>) = self
+            .styles
+            .iter()
+            .filter_map(|(range, run)| Some((range.clone(), run.link.clone()?)))
+            .unzip();
+        if ranges.is_empty() {
+            return self.styled_text(theme).into_any_element();
+        }
+        InteractiveText::new(("text", ix), self.styled_text(theme))
+            .on_click(ranges, move |link, _, cx| {
+                view.update(cx, |reader, cx| reader.follow(&hrefs[link], cx));
+            })
+            .into_any_element()
+    }
 }
 
 fn highlight(run: &Run, link: Hsla) -> HighlightStyle {
@@ -148,24 +209,67 @@ struct Opened {
     info: FileInfo,
 }
 
+struct LoadedChapter {
+    first: usize,
+    len: usize,
+    anchors: HashMap<String, usize>,
+}
+
+/// A place in the book. The anchor, when the chapter has it, overrides the offset.
+struct Target {
+    spine: usize,
+    anchor: Option<String>,
+    offset: usize,
+}
+
+impl From<Position> for Target {
+    fn from(position: Position) -> Self {
+        Self {
+            spine: position.spine,
+            anchor: None,
+            offset: position.offset,
+        }
+    }
+}
+
+/// A scroll that needs the layout of the list first.
+enum Adjust {
+    /// Scroll to this part of the item height, once the item is measured.
+    Part(usize, f32),
+    /// Scroll up one screen, after one layout measures the items above the top.
+    Above { laid_out: bool },
+}
+
 pub struct Reader {
     status: Status,
+    book: Option<Arc<Book>>,
     book_id: Option<String>,
     spine_len: usize,
+    /// The spine index and anchor of each entry of the table of contents.
+    toc: Vec<Option<(usize, Option<String>)>>,
     items: Vec<Item>,
-    /// First item and text length of each loaded chapter.
-    chapters: Vec<(usize, usize)>,
+    chapters: Vec<LoadedChapter>,
     list: ListState,
-    /// The saved position, until its chapter is loaded.
-    restore: Option<Position>,
-    /// An item and the part of its height to scroll to, once the item is measured.
-    adjust: Option<(usize, f32)>,
+    /// A place to go to when its chapter is loaded: the saved position, or a jump.
+    pending: Option<Target>,
+    adjust: Option<Adjust>,
+    /// Positions before link jumps, for Alt+Left.
+    back: Vec<Position>,
     save_task: Option<Task<()>>,
     pictures: HashMap<String, Picture>,
     decoded: VecDeque<String>,
     dropped: Vec<Arc<RenderImage>>,
+    toc_open: bool,
+    toc_scroll: UniformListScrollHandle,
+    top_bar: bool,
+    /// The list corrects a scroll past the end in its layout, after the render.
+    /// One more frame shows the corrected position in the bars.
+    redraw: bool,
+    seek: Entity<SliderState>,
+    /// The seek bar is dragged, so it does not follow the position.
+    seeking: bool,
     focus: FocusHandle,
-    _quit: Subscription,
+    _subscriptions: Vec<Subscription>,
 }
 
 pub enum ReaderEvent {
@@ -185,26 +289,46 @@ impl Reader {
         let list = ListState::new(0, ListAlignment::Top, px(1000.));
         let this = cx.entity().downgrade();
         list.set_scroll_handler(move |_, _, cx| {
-            this.update(cx, |reader, cx| reader.schedule_save(cx)).ok();
+            this.update(cx, |reader, cx| reader.scrolled(cx)).ok();
         });
+        let seek = cx.new(|_| SliderState::new().min(0.).max(100.).step(0.01));
+        let subscriptions = vec![
+            cx.on_app_quit(|reader, cx| {
+                reader.save_position(cx);
+                async {}
+            }),
+            cx.subscribe(&seek, |reader, _, event: &SliderEvent, cx| match event {
+                SliderEvent::Change(value) => {
+                    reader.seeking = true;
+                    reader.seek_to(value.end(), cx);
+                }
+                SliderEvent::Release(_) => reader.seeking = false,
+            }),
+        ];
         let mut reader = Self {
             status: Status::NoBook,
+            book: None,
             book_id: None,
             spine_len: 0,
+            toc: Vec::new(),
             items: Vec::new(),
             chapters: Vec::new(),
             list,
-            restore: None,
+            pending: None,
             adjust: None,
+            back: Vec::new(),
             save_task: None,
             pictures: HashMap::new(),
             decoded: VecDeque::new(),
             dropped: Vec::new(),
+            toc_open: false,
+            toc_scroll: UniformListScrollHandle::new(),
+            top_bar: false,
+            redraw: false,
+            seek,
+            seeking: false,
             focus: cx.focus_handle(),
-            _quit: cx.on_app_quit(|reader, cx| {
-                reader.save_position(cx);
-                async {}
-            }),
+            _subscriptions: subscriptions,
         };
         if let Some(path) = path {
             reader.open(path, cx);
@@ -256,11 +380,22 @@ impl Reader {
     fn opened(&mut self, opened: Opened, cx: &mut Context<Self>) {
         self.book_id = Some(opened.info.id.clone());
         self.spine_len = opened.book.spine.len();
-        self.restore = Some(cx.update_global(|store: &mut Store, _| {
+        let book = &opened.book;
+        self.toc = book
+            .toc
+            .iter()
+            .map(|entry| {
+                let (spine, fragment) = book.locate(entry.href.as_deref()?)?;
+                Some((spine, fragment.map(str::to_string)))
+            })
+            .collect();
+        self.book = Some(opened.book);
+        let position = cx.update_global(|store: &mut Store, _| {
             let position = store.library.open(opened.info, Utc::now()).position;
             store.save();
             position
-        }));
+        });
+        self.pending = Some(position.into());
     }
 
     /// Saves the position and releases the decoded images.
@@ -285,7 +420,11 @@ impl Reader {
     fn append(&mut self, loaded: Loaded, cx: &mut Context<Self>) {
         let start = self.items.len();
         let spine = self.chapters.len();
-        self.chapters.push((start, loaded.chapter.len));
+        self.chapters.push(LoadedChapter {
+            first: start,
+            len: loaded.chapter.len,
+            anchors: loaded.chapter.anchors,
+        });
         let blocks = loaded.chapter.blocks.into_iter().enumerate();
         self.items
             .extend(blocks.map(|(i, block)| Item::new(block, spine, i == 0)));
@@ -293,21 +432,18 @@ impl Reader {
             self.pictures.entry(href).or_insert(picture);
         }
         self.list.splice(start..start, self.items.len() - start);
-        if let Some(position) = self.restore
-            && position.spine < self.chapters.len()
-        {
-            self.restore = None;
-            self.scroll_to_position(position);
+        if let Some(target) = self.pending.take_if(|t| t.spine < self.chapters.len()) {
+            self.scroll_to_target(&target);
         }
-        if self.restore.is_none() && !self.items.is_empty() {
+        if self.pending.is_none() && !self.items.is_empty() {
             self.status = Status::Ready;
         }
         cx.notify();
     }
 
     fn loaded(&mut self, cx: &mut Context<Self>) {
-        // The saved chapter is not in the book any more.
-        self.restore = None;
+        // The target chapter is not in the book.
+        self.pending = None;
         if self.items.is_empty() {
             self.fail("The book has no text.".into(), cx);
         } else {
@@ -316,12 +452,34 @@ impl Reader {
         }
     }
 
+    /// Goes to the target now, or when its chapter is loaded.
+    fn go_to(&mut self, target: Target, cx: &mut Context<Self>) {
+        if target.spine < self.chapters.len() {
+            self.scroll_to_target(&target);
+        } else if target.spine < self.spine_len {
+            self.pending = Some(target);
+        }
+        self.scrolled(cx);
+        cx.notify();
+    }
+
+    fn scroll_to_target(&mut self, target: &Target) {
+        let anchors = &self.chapters[target.spine].anchors;
+        let offset = target
+            .anchor
+            .as_deref()
+            .and_then(|anchor| anchors.get(anchor))
+            .copied()
+            .unwrap_or(target.offset);
+        self.scroll_to_position(Position {
+            spine: target.spine,
+            offset,
+        });
+    }
+
     fn scroll_to_position(&mut self, position: Position) {
-        let (first, _) = self.chapters[position.spine];
-        let end = self
-            .chapters
-            .get(position.spine + 1)
-            .map_or(self.items.len(), |(start, _)| *start);
+        let first = self.chapters[position.spine].first;
+        let end = self.chapter_end(position.spine);
         let found = (first..end)
             .rev()
             .find(|&ix| self.items[ix].block.offset <= position.offset);
@@ -336,11 +494,236 @@ impl Reader {
         } else {
             (into as f32 / item.len as f32).min(1.)
         };
+        self.scroll_to_item(ix);
+        self.adjust = (part > 0.).then_some(Adjust::Part(ix, part));
+    }
+
+    fn scroll_to_item(&mut self, ix: usize) {
+        self.adjust = None;
         self.list.scroll_to(ListOffset {
             item_ix: ix,
             offset_in_item: px(0.),
         });
-        self.adjust = (part > 0.).then_some((ix, part));
+    }
+
+    /// The item after the last item of a loaded chapter.
+    fn chapter_end(&self, spine: usize) -> usize {
+        self.chapters
+            .get(spine + 1)
+            .map_or(self.items.len(), |chapter| chapter.first)
+    }
+
+    fn follow(&mut self, href: &str, cx: &mut Context<Self>) {
+        let Some((spine, fragment)) = self.book.as_ref().and_then(|book| book.locate(href)) else {
+            return;
+        };
+        let anchor = fragment.map(str::to_string);
+        if let Some(position) = self.position() {
+            self.back.push(position);
+        }
+        self.go_to(
+            Target {
+                spine,
+                anchor,
+                offset: 0,
+            },
+            cx,
+        );
+    }
+
+    fn go_back(&mut self, _: &GoBack, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(position) = self.back.pop() {
+            self.go_to(position.into(), cx);
+        }
+    }
+
+    /// Where an entry of the table of contents goes, once its chapter is loaded.
+    fn toc_target(&self, ix: usize) -> Option<Target> {
+        let (spine, anchor) = self.toc.get(ix)?.clone()?;
+        Some(Target {
+            spine,
+            anchor,
+            offset: 0,
+        })
+    }
+
+    /// The last entry of the table of contents at or before the position.
+    fn current_toc(&self) -> Option<usize> {
+        let position = self.position()?;
+        let mut current = None;
+        for (ix, entry) in self.toc.iter().enumerate() {
+            let Some((spine, anchor)) = entry else {
+                continue;
+            };
+            let Some(chapter) = self.chapters.get(*spine) else {
+                continue;
+            };
+            let offset = anchor
+                .as_ref()
+                .and_then(|anchor| chapter.anchors.get(anchor).copied())
+                .unwrap_or(0);
+            let start = Position {
+                spine: *spine,
+                offset,
+            };
+            if start <= position && current.is_none_or(|(_, best)| start >= best) {
+                current = Some((ix, start));
+            }
+        }
+        current.map(|(ix, _)| ix)
+    }
+
+    fn open_toc_entry(&mut self, ix: usize, cx: &mut Context<Self>) {
+        if let Some(target) = self.toc_target(ix) {
+            self.toc_open = false;
+            self.go_to(target, cx);
+        }
+    }
+
+    fn toggle_toc(&mut self, _: &ToggleToc, _: &mut Window, cx: &mut Context<Self>) {
+        self.toc_open = !self.toc_open;
+        if self.toc_open
+            && let Some(ix) = self.current_toc()
+        {
+            self.toc_scroll.scroll_to_item(ix, ScrollStrategy::Center);
+        }
+        cx.notify();
+    }
+
+    fn back(&mut self, _: &Back, _: &mut Window, cx: &mut Context<Self>) {
+        if self.toc_open {
+            self.toc_open = false;
+            cx.notify();
+        } else {
+            cx.emit(ReaderEvent::Close);
+        }
+    }
+
+    fn scroll_by(&mut self, distance: f32, cx: &mut Context<Self>) {
+        self.adjust = None;
+        self.list.scroll_by(px(distance));
+        self.scrolled(cx);
+        cx.notify();
+    }
+
+    /// One screen, less one line, so the last line stays in view.
+    fn screen(&self) -> f32 {
+        let height = f32::from(self.list.viewport_bounds().size.height);
+        (height - LINE_HEIGHT).max(LINE_HEIGHT)
+    }
+
+    fn page_down(&mut self, _: &PageDown, _: &mut Window, cx: &mut Context<Self>) {
+        self.scroll_by(self.screen(), cx);
+    }
+
+    fn page_up(&mut self, _: &PageUp, _: &mut Window, cx: &mut Context<Self>) {
+        self.scroll_by(-self.screen(), cx);
+    }
+
+    fn line_down(&mut self, _: &LineDown, _: &mut Window, cx: &mut Context<Self>) {
+        self.scroll_by(LINE_HEIGHT, cx);
+    }
+
+    fn line_up(&mut self, _: &LineUp, _: &mut Window, cx: &mut Context<Self>) {
+        self.scroll_by(-LINE_HEIGHT, cx);
+    }
+
+    fn chapter_start(&mut self, _: &ChapterStart, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(position) = self.position() {
+            self.scroll_to_item(self.chapters[position.spine].first);
+            self.scrolled(cx);
+            cx.notify();
+        }
+    }
+
+    /// Puts the end of the chapter at the bottom of the window.
+    fn chapter_end_key(&mut self, _: &ChapterEnd, _: &mut Window, cx: &mut Context<Self>) {
+        let Some(position) = self.position() else {
+            return;
+        };
+        let end = self.chapter_end(position.spine);
+        if end == self.items.len() {
+            self.adjust = None;
+            self.list.scroll_to_end();
+        } else {
+            self.scroll_to_item(end);
+            self.adjust = Some(Adjust::Above { laid_out: false });
+        }
+        self.scrolled(cx);
+        cx.notify();
+    }
+
+    fn book_start(&mut self, _: &BookStart, _: &mut Window, cx: &mut Context<Self>) {
+        self.scroll_to_item(0);
+        self.scrolled(cx);
+        cx.notify();
+    }
+
+    fn book_end(&mut self, _: &BookEnd, _: &mut Window, cx: &mut Context<Self>) {
+        self.adjust = None;
+        self.list.scroll_to_end();
+        self.scrolled(cx);
+        cx.notify();
+    }
+
+    fn seek_to(&mut self, percent: f32, cx: &mut Context<Self>) {
+        if self.chapters.len() < self.spine_len {
+            return;
+        }
+        let total: usize = self.chapters.iter().map(|c| c.len).sum();
+        let mut rest = (percent / 100. * total as f32) as usize;
+        for (spine, chapter) in self.chapters.iter().enumerate() {
+            if rest < chapter.len {
+                self.go_to(
+                    Position {
+                        spine,
+                        offset: rest,
+                    }
+                    .into(),
+                    cx,
+                );
+                return;
+            }
+            rest -= chapter.len;
+        }
+        self.adjust = None;
+        self.list.scroll_to_end();
+        self.scrolled(cx);
+        cx.notify();
+    }
+
+    /// Characters before the position, as a percent of the book. Known when all
+    /// chapters are loaded.
+    fn percent(&self, position: Position) -> Option<f32> {
+        if self.chapters.len() < self.spine_len {
+            return None;
+        }
+        let total: usize = self.chapters.iter().map(|c| c.len).sum();
+        let before: usize = self.chapters[..position.spine].iter().map(|c| c.len).sum();
+        Some((100. * (before + position.offset) as f32 / total.max(1) as f32).min(100.))
+    }
+
+    /// Hides the top bar while you read, and saves the position later.
+    fn scrolled(&mut self, cx: &mut Context<Self>) {
+        self.top_bar = false;
+        self.redraw = true;
+        cx.notify();
+        self.schedule_save(cx);
+    }
+
+    fn mouse_moved(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
+        let y = f32::from(event.position.y);
+        let show = if y <= TOP_EDGE {
+            true
+        } else if y > TOP_BAR_HEIGHT {
+            false
+        } else {
+            self.top_bar
+        };
+        if show != self.top_bar {
+            self.top_bar = show;
+            cx.notify();
+        }
     }
 
     /// The top block, and how far it is scrolled, as a part of its characters.
@@ -361,9 +744,6 @@ impl Reader {
     }
 
     fn schedule_save(&mut self, cx: &mut Context<Self>) {
-        if self.restore.is_some() || self.adjust.is_some() {
-            return;
-        }
         self.save_task = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(SAVE_DELAY).await;
             this.update(cx, |reader, cx| reader.save_position(cx)).ok();
@@ -372,20 +752,13 @@ impl Reader {
 
     fn save_position(&mut self, cx: &mut Context<Self>) {
         self.save_task = None;
-        if self.restore.is_some() || self.adjust.is_some() {
+        if self.pending.is_some() || self.adjust.is_some() {
             return;
         }
         let (Some(id), Some(position)) = (self.book_id.as_deref(), self.position()) else {
             return;
         };
-        let percent = (self.chapters.len() == self.spine_len).then(|| {
-            let total: usize = self.chapters.iter().map(|(_, len)| len).sum();
-            let before: usize = self.chapters[..position.spine]
-                .iter()
-                .map(|(_, len)| len)
-                .sum();
-            100. * (before + position.offset) as f32 / total.max(1) as f32
-        });
+        let percent = self.percent(position);
         cx.update_global(|store: &mut Store, _| {
             let Some(entry) = store.library.book_mut(id) else {
                 return;
@@ -395,7 +768,7 @@ impl Reader {
             }
             entry.position = position;
             if let Some(percent) = percent {
-                entry.percent = percent.min(100.);
+                entry.percent = percent;
             }
             store.save();
         });
@@ -445,7 +818,13 @@ impl Reader {
     }
 
     /// Returns the element and the href of an image that must be decoded.
-    fn render_item(&self, ix: usize, window: &Window, cx: &App) -> (AnyElement, Option<String>) {
+    fn render_item(
+        &self,
+        ix: usize,
+        view: &Entity<Reader>,
+        window: &Window,
+        cx: &App,
+    ) -> (AnyElement, Option<String>) {
         let item = &self.items[ix];
         let theme = cx.theme();
         let viewport = window.viewport_size();
@@ -462,11 +841,13 @@ impl Reader {
                     .text_size(px(FONT_SIZE * scale))
                     .line_height(relative(1.25))
                     .font_weight(FontWeight::BOLD)
-                    .child(item.styled_text(theme))
+                    .child(item.text(ix, theme, view.clone()))
             }
-            BlockKind::Paragraph { .. } => div()
-                .pb(px(FONT_SIZE * 0.75))
-                .child(item.styled_text(theme)),
+            BlockKind::Paragraph { .. } => {
+                div()
+                    .pb(px(FONT_SIZE * 0.75))
+                    .child(item.text(ix, theme, view.clone()))
+            }
             BlockKind::ListItem { depth, marker, .. } => {
                 let marker = match marker {
                     Some(Marker::Bullet) => "•".to_string(),
@@ -478,7 +859,12 @@ impl Reader {
                     .pb(px(FONT_SIZE * 0.4))
                     .pl(px(FONT_SIZE * 1.5 * (*depth as f32 - 1.)))
                     .child(div().flex_none().w(px(FONT_SIZE * 1.8)).child(marker))
-                    .child(div().flex_1().min_w_0().child(item.styled_text(theme)))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(item.text(ix, theme, view.clone())),
+                    )
             }
             BlockKind::Pre { text } => div()
                 .pb(px(FONT_SIZE * 0.75))
@@ -598,13 +984,144 @@ fn decode_image(bytes: &[u8]) -> Option<Arc<RenderImage>> {
     Some(Arc::new(RenderImage::new(vec![Frame::new(pixels)])))
 }
 
+impl Reader {
+    fn render_top_bar(&self, cx: &App) -> impl IntoElement {
+        let theme = cx.theme();
+        let title = self.book.as_ref().map(|book| book.title.clone());
+        let chapter = self
+            .current_toc()
+            .and_then(|ix| Some(self.book.as_ref()?.toc[ix].label.clone()));
+        div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .right_0()
+            .h(px(TOP_BAR_HEIGHT))
+            .px(px(MARGIN))
+            .flex()
+            .items_center()
+            .gap_3()
+            .bg(theme.background)
+            .border_b_1()
+            .border_color(theme.border)
+            .occlude()
+            .children(title.map(|title| {
+                div()
+                    .flex_none()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(title)
+            }))
+            .children(chapter.map(|chapter| {
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .text_color(theme.muted_foreground)
+                    .child(chapter)
+            }))
+    }
+
+    fn render_bottom_bar(&self, cx: &App) -> impl IntoElement {
+        let theme = cx.theme();
+        let percent = self.position().and_then(|position| self.percent(position));
+        div()
+            .flex_none()
+            .h(px(BOTTOM_BAR_HEIGHT))
+            .px(px(MARGIN))
+            .flex()
+            .items_center()
+            .gap_4()
+            .border_t_1()
+            .border_color(theme.border)
+            .child(
+                div()
+                    .flex_1()
+                    .child(Slider::new(&self.seek).disabled(percent.is_none())),
+            )
+            .child(
+                div()
+                    .w(px(40.))
+                    .text_right()
+                    .text_color(theme.muted_foreground)
+                    .children(percent.map(|percent| format!("{percent:.0}%"))),
+            )
+    }
+
+    fn render_toc(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let body = if self.toc.is_empty() {
+            div()
+                .p(px(16.))
+                .text_color(theme.muted_foreground)
+                .child("This book has no table of contents.")
+                .into_any_element()
+        } else {
+            let current = self.current_toc();
+            uniform_list(
+                "toc",
+                self.toc.len(),
+                cx.processor(move |reader, range: Range<usize>, _, cx| {
+                    let Some(book) = reader.book.clone() else {
+                        return Vec::new();
+                    };
+                    let theme = cx.theme();
+                    let (active, hover, muted) =
+                        (theme.list_active, theme.list_hover, theme.muted_foreground);
+                    range
+                        .map(|ix| {
+                            let entry = &book.toc[ix];
+                            div()
+                                .id(ix)
+                                .w_full()
+                                .h(px(TOC_ROW_HEIGHT))
+                                .pl(px(16. + 16. * entry.depth as f32))
+                                .pr(px(16.))
+                                .flex()
+                                .items_center()
+                                .child(div().min_w_0().truncate().child(entry.label.clone()))
+                                .when(Some(ix) == current, |row| row.bg(active))
+                                .map(|row| {
+                                    if reader.toc[ix].is_some() {
+                                        row.cursor_pointer()
+                                            .hover(move |row| row.bg(hover))
+                                            .on_click(cx.listener(move |reader, _, _, cx| {
+                                                reader.open_toc_entry(ix, cx)
+                                            }))
+                                    } else {
+                                        row.text_color(muted)
+                                    }
+                                })
+                        })
+                        .collect()
+                }),
+            )
+            .track_scroll(&self.toc_scroll)
+            .flex_1()
+            .into_any_element()
+        };
+        div()
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .left_0()
+            .w(px(TOC_WIDTH))
+            .flex()
+            .flex_col()
+            .py_2()
+            .bg(theme.background)
+            .border_r_1()
+            .border_color(theme.border)
+            .occlude()
+            .child(body)
+    }
+}
+
 impl Render for Reader {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         for image in self.dropped.drain(..) {
             window.drop_image(image).ok();
         }
-        if let Some((ix, part)) = self.adjust {
-            match self.list.bounds_for_item(ix) {
+        match self.adjust {
+            Some(Adjust::Part(ix, part)) => match self.list.bounds_for_item(ix) {
                 Some(bounds) => {
                     self.list.scroll_to(ListOffset {
                         item_ix: ix,
@@ -613,7 +1130,27 @@ impl Render for Reader {
                     self.adjust = None;
                 }
                 None => window.request_animation_frame(),
+            },
+            Some(Adjust::Above { laid_out: false }) => {
+                self.adjust = Some(Adjust::Above { laid_out: true });
+                window.request_animation_frame();
             }
+            Some(Adjust::Above { laid_out: true }) => {
+                let height = self.list.viewport_bounds().size.height;
+                self.list.scroll_by(-height);
+                self.adjust = None;
+            }
+            None => {}
+        }
+        if mem::take(&mut self.redraw) {
+            window.request_animation_frame();
+        }
+        if !self.seeking
+            && let Some(percent) = self.position().and_then(|p| self.percent(p))
+            && (self.seek.read(cx).value().end() - percent).abs() > 0.01
+        {
+            self.seek
+                .update(cx, |seek, cx| seek.set_value(percent, window, cx));
         }
 
         let theme = cx.theme();
@@ -627,6 +1164,7 @@ impl Render for Reader {
                 .child(text)
                 .into_any_element()
         };
+        let ready = matches!(self.status, Status::Ready);
         let body = match &self.status {
             Status::NoBook => message("Open a book: book-buddy <file.epub>".into()),
             Status::Loading => message("Loading...".into()),
@@ -634,7 +1172,7 @@ impl Render for Reader {
             Status::Ready => {
                 let view = cx.entity();
                 list(self.list.clone(), move |ix, window, cx| {
-                    let (element, decode) = view.read(cx).render_item(ix, window, cx);
+                    let (element, decode) = view.read(cx).render_item(ix, &view, window, cx);
                     if let Some(href) = decode {
                         view.update(cx, |reader, cx| reader.decode(&href, cx));
                     }
@@ -644,18 +1182,61 @@ impl Render for Reader {
                 .into_any_element()
             }
         };
+        let (background, foreground) = (theme.background, theme.foreground);
+        let (chrome_font, chrome_size) = (theme.font_family.clone(), theme.font_size);
 
         div()
             .id("reader")
             .key_context("Reader")
             .track_focus(&self.focus)
-            .on_action(cx.listener(|_, _: &Back, _, cx| cx.emit(ReaderEvent::Close)))
+            .on_action(cx.listener(Self::back))
+            .on_action(cx.listener(Self::toggle_toc))
+            .on_action(cx.listener(Self::go_back))
+            .on_action(cx.listener(Self::page_down))
+            .on_action(cx.listener(Self::page_up))
+            .on_action(cx.listener(Self::line_down))
+            .on_action(cx.listener(Self::line_up))
+            .on_action(cx.listener(Self::chapter_start))
+            .on_action(cx.listener(Self::chapter_end_key))
+            .on_action(cx.listener(Self::book_start))
+            .on_action(cx.listener(Self::book_end))
+            .on_mouse_move(cx.listener(Self::mouse_moved))
             .size_full()
-            .bg(theme.background)
-            .text_color(theme.foreground)
-            .font_family(SERIF)
-            .text_size(px(FONT_SIZE))
-            .line_height(relative(1.5))
-            .child(body)
+            .flex()
+            .flex_col()
+            .bg(background)
+            .text_color(foreground)
+            .child(
+                div()
+                    .relative()
+                    .flex_1()
+                    .min_h_0()
+                    .font_family(SERIF)
+                    .text_size(px(FONT_SIZE))
+                    .line_height(relative(1.5))
+                    .child(body)
+                    .when(ready && (self.toc_open || self.top_bar), |main| {
+                        main.child(
+                            div()
+                                .absolute()
+                                .top_0()
+                                .left_0()
+                                .size_full()
+                                .font_family(chrome_font.clone())
+                                .text_size(chrome_size)
+                                .line_height(relative(1.4))
+                                .when(self.toc_open, |chrome| chrome.child(self.render_toc(cx)))
+                                .when(self.top_bar, |chrome| chrome.child(self.render_top_bar(cx))),
+                        )
+                    }),
+            )
+            .when(ready, |reader| {
+                reader.child(
+                    div()
+                        .font_family(chrome_font)
+                        .text_size(chrome_size)
+                        .child(self.render_bottom_bar(cx)),
+                )
+            })
     }
 }

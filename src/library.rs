@@ -43,7 +43,7 @@ pub struct BookEntry {
 }
 
 /// A spine index, and a character offset into the text of that chapter.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Position {
     pub spine: usize,
     pub offset: usize,

@@ -292,6 +292,42 @@ mod tests {
         }
     }
 
+    /// Each entry goes to the start of its heading, or to the cover image.
+    #[test]
+    fn toc_entries_go_to_their_headings() {
+        for name in [
+            "minimal-v2.epub",
+            "minimal-v3.epub",
+            "minimal-v3plus2.epub",
+            "basic-v3plus2.epub",
+            "basic-test.epub",
+        ] {
+            let book = open(name);
+            for entry in &book.toc {
+                let href = entry.href.as_deref().unwrap();
+                let (spine, fragment) = book.locate(href).expect(href);
+                let chapter = book.chapter(spine);
+                let offset = match fragment {
+                    Some(fragment) => chapter.anchors[fragment],
+                    None => 0,
+                };
+                let block = chapter
+                    .blocks
+                    .iter()
+                    .find(|b| b.offset == offset)
+                    .unwrap_or_else(|| panic!("{name} {href}: no block at {offset}"));
+                assert!(
+                    matches!(
+                        block.kind,
+                        BlockKind::Heading { .. } | BlockKind::Image { .. }
+                    ),
+                    "{name} {href}: {}",
+                    describe(block)
+                );
+            }
+        }
+    }
+
     #[test]
     fn locate() {
         let book = open("basic-v3plus2.epub");
