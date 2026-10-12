@@ -1,5 +1,6 @@
 use std::fs::{self, File};
 use std::io::{ErrorKind, Write};
+use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -14,6 +15,8 @@ pub struct Library {
     /// Watched folders, scanned for books on startup.
     #[serde(default)]
     pub folders: Vec<PathBuf>,
+    #[serde(default)]
+    pub settings: Settings,
     #[serde(default)]
     pub last_book: Option<String>,
     #[serde(default)]
@@ -49,6 +52,49 @@ pub struct Position {
     pub offset: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Settings {
+    pub mode: Mode,
+    pub font: Font,
+    pub font_size: u32,
+    pub theme: Theme,
+}
+
+pub const FONT_SIZES: RangeInclusive<u32> = 12..=36;
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            mode: Mode::Scroll,
+            font: Font::Serif,
+            font_size: 18,
+            theme: Theme::Light,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Mode {
+    Scroll,
+    Paginated,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Font {
+    Serif,
+    Sans,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Theme {
+    Light,
+    Dark,
+}
+
 /// What the library knows about a book file when it is opened.
 pub struct FileInfo {
     pub id: String,
@@ -64,6 +110,7 @@ impl Default for Library {
         Self {
             version: VERSION,
             folders: Vec::new(),
+            settings: Settings::default(),
             last_book: None,
             books: Vec::new(),
         }
@@ -277,6 +324,27 @@ mod tests {
         library.save(&path).unwrap();
         assert_eq!(Library::load(&path).unwrap(), library);
         assert!(!path.with_extension("json.tmp").exists());
+    }
+
+    #[test]
+    fn settings_round_trip_and_default() {
+        let dir = temp_dir("settings");
+        let path = dir.join("library.json");
+        fs::write(
+            &path,
+            r#"{ "version": 1, "settings": { "theme": "dark" } }"#,
+        )
+        .unwrap();
+        let mut library = Library::load(&path).unwrap();
+        assert_eq!(library.settings.theme, Theme::Dark);
+        assert_eq!(library.settings.font_size, 18);
+
+        library.settings.font = Font::Sans;
+        library.settings.font_size = 24;
+        library.save(&path).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.contains(r#""font": "sans""#));
+        assert_eq!(Library::load(&path).unwrap().settings, library.settings);
     }
 
     #[test]

@@ -9,11 +9,14 @@ use crate::Import;
 use crate::library_view::{LibraryEvent, LibraryView};
 use crate::reader::{Reader, ReaderEvent};
 use crate::scan;
+use crate::settings::{CloseSettings, OpenSettings, SettingsPanel};
 
 /// The root view. It shows the library or one book.
 pub struct Shell {
     library: Entity<LibraryView>,
     reader: Option<Entity<Reader>>,
+    settings: Option<Entity<SettingsPanel>>,
+    _settings_subscription: Option<Subscription>,
     _subscriptions: Vec<Subscription>,
     _reader_subscription: Option<Subscription>,
 }
@@ -28,6 +31,8 @@ impl Shell {
         let mut shell = Self {
             library,
             reader: None,
+            settings: None,
+            _settings_subscription: None,
             _subscriptions: vec![subscription],
             _reader_subscription: None,
         };
@@ -49,6 +54,32 @@ impl Shell {
             );
         reader.focus_handle(cx).focus(window, cx);
         self.reader = Some(reader);
+        cx.notify();
+    }
+
+    fn open_settings(&mut self, _: &OpenSettings, window: &mut Window, cx: &mut Context<Self>) {
+        if self.settings.is_none() {
+            let panel = cx.new(SettingsPanel::new);
+            self._settings_subscription = Some(cx.subscribe_in(
+                &panel,
+                window,
+                |this, _, _: &CloseSettings, window, cx| this.close_settings(window, cx),
+            ));
+            self.settings = Some(panel);
+        }
+        if let Some(panel) = &self.settings {
+            panel.focus_handle(cx).focus(window, cx);
+        }
+        cx.notify();
+    }
+
+    fn close_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.settings = None;
+        self._settings_subscription = None;
+        match &self.reader {
+            Some(reader) => reader.focus_handle(cx).focus(window, cx),
+            None => self.library.focus_handle(cx).focus(window, cx),
+        }
         cx.notify();
     }
 
@@ -84,12 +115,15 @@ impl Render for Shell {
             None => self.library.clone().into_any_element(),
         };
         div()
+            .relative()
             .size_full()
             .key_context("Shell")
             .on_action(cx.listener(Self::import_dialog))
+            .on_action(cx.listener(Self::open_settings))
             .on_drop(cx.listener(|_, paths: &ExternalPaths, _, cx| {
                 scan::import(paths.paths().to_vec(), cx);
             }))
             .child(content)
+            .children(self.settings.clone())
     }
 }

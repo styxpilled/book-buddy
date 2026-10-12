@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use book_buddy::book::{Block, BlockKind, Book, Chapter, Marker, Run};
-use book_buddy::library::{FileInfo, Position};
+use book_buddy::library::{FileInfo, Font, Mode, Position};
 use chrono::Utc;
 use gpui::{
     AnyElement, App, AppContext, BorrowAppContext, Context, Entity, EventEmitter, FocusHandle,
@@ -18,24 +18,32 @@ use gpui::{
     StyledText, Subscription, Task, UnderlineStyle, UniformListScrollHandle, Window, actions,
     combine_highlights, div, img, list, prelude::FluentBuilder, px, relative, uniform_list,
 };
+use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
-use gpui_kit::component::{ActiveTheme, Theme};
+use gpui_kit::component::{ActiveTheme, Sizable, Theme};
 use image::imageops::FilterType;
 use image::{Frame, ImageReader};
 
+mod pages;
 mod search;
 mod selection;
 
 use crate::Back;
 use crate::scan;
+use crate::settings::OpenSettings;
 use crate::store::Store;
+use pages::Pages;
 use search::Search;
 use selection::Selection;
 
 const SERIF: &str = "Literata";
+const SANS: &str = "Inter";
 const MONO: &str = "Consolas";
-const FONT_SIZE: f32 = 18.;
-const LINE_HEIGHT: f32 = FONT_SIZE * 1.5;
+const LINE_SPACING: f32 = 1.5;
+const HEADING_SPACING: f32 = 1.25;
+const PRE_SCALE: f32 = 0.85;
+/// Space below a block quote, in font sizes.
+const QUOTE_GAP: f32 = 0.75;
 const HEADING_SCALE: [f32; 6] = [1.8, 1.5, 1.3, 1.15, 1.0, 1.0];
 const COLUMN_WIDTH: f32 = 720.;
 const MARGIN: f32 = 32.;
@@ -273,6 +281,10 @@ pub struct Reader {
     seek: Entity<SliderState>,
     /// The seek bar is dragged, so it does not follow the position.
     seeking: bool,
+    font: Font,
+    font_size: f32,
+    mode: Mode,
+    pages: Pages,
     focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -309,7 +321,11 @@ impl Reader {
                 }
                 SliderEvent::Release(_) => reader.seeking = false,
             }),
+            cx.observe_global::<Store>(|reader, cx| reader.apply_settings(cx)),
         ];
+        let settings = &cx.global::<Store>().library.settings;
+        let (font, font_size) = (settings.font, settings.font_size as f32);
+        let mode = settings.mode;
         let mut reader = Self {
             status: Status::NoBook,
             book: None,
@@ -334,6 +350,10 @@ impl Reader {
             redraw: false,
             seek,
             seeking: false,
+            font,
+            font_size,
+            mode,
+            pages: Pages::default(),
             focus: cx.focus_handle(),
             _subscriptions: subscriptions,
         };
@@ -418,6 +438,31 @@ impl Reader {
         }
     }
 
+    /// The list keeps the part of the top block that is scrolled, so the
+    /// position stays the same.
+    fn apply_settings(&mut self, cx: &mut Context<Self>) {
+        let settings = &cx.global::<Store>().library.settings;
+        let (font, font_size, mode) = (settings.font, settings.font_size as f32, settings.mode);
+        if (font, font_size) != (self.font, self.font_size) {
+            self.font = font;
+            self.font_size = font_size;
+            self.list.remeasure();
+            cx.notify();
+        }
+        if mode != self.mode {
+            let position = self.position();
+            self.mode = mode;
+            if let Some(position) = position {
+                self.scroll_to_position(position);
+            }
+            cx.notify();
+        }
+    }
+
+    fn line_height(&self) -> f32 {
+        self.font_size * LINE_SPACING
+    }
+
     fn fail(&mut self, message: String, cx: &mut Context<Self>) {
         log::error!("{message}");
         self.status = Status::Failed(message);
@@ -485,6 +530,10 @@ impl Reader {
     }
 
     fn scroll_to_position(&mut self, position: Position) {
+        if self.paged() {
+            self.show_position(position);
+            return;
+        }
         let first = self.chapters[position.spine].first;
         let end = self.chapter_end(position.spine);
         let found = (first..end)
@@ -625,28 +674,48 @@ impl Reader {
     /// One screen, less one line, so the last line stays in view.
     fn screen(&self) -> f32 {
         let height = f32::from(self.list.viewport_bounds().size.height);
-        (height - LINE_HEIGHT).max(LINE_HEIGHT)
+        let line = self.line_height();
+        (height - line).max(line)
     }
 
     fn page_down(&mut self, _: &PageDown, _: &mut Window, cx: &mut Context<Self>) {
-        self.scroll_by(self.screen(), cx);
+        if self.paged() {
+            self.turn(1, cx);
+        } else {
+            self.scroll_by(self.screen(), cx);
+        }
     }
 
     fn page_up(&mut self, _: &PageUp, _: &mut Window, cx: &mut Context<Self>) {
-        self.scroll_by(-self.screen(), cx);
+        if self.paged() {
+            self.turn(-1, cx);
+        } else {
+            self.scroll_by(-self.screen(), cx);
+        }
     }
 
     fn line_down(&mut self, _: &LineDown, _: &mut Window, cx: &mut Context<Self>) {
-        self.scroll_by(LINE_HEIGHT, cx);
+        if !self.paged() {
+            self.scroll_by(self.line_height(), cx);
+        }
     }
 
     fn line_up(&mut self, _: &LineUp, _: &mut Window, cx: &mut Context<Self>) {
-        self.scroll_by(-LINE_HEIGHT, cx);
+        if !self.paged() {
+            self.scroll_by(-self.line_height(), cx);
+        }
     }
 
     fn chapter_start(&mut self, _: &ChapterStart, _: &mut Window, cx: &mut Context<Self>) {
         if let Some(position) = self.position() {
-            self.scroll_to_item(self.chapters[position.spine].first);
+            if self.paged() {
+                self.show_position(Position {
+                    spine: position.spine,
+                    offset: 0,
+                });
+            } else {
+                self.scroll_to_item(self.chapters[position.spine].first);
+            }
             self.scrolled(cx);
             cx.notify();
         }
@@ -658,7 +727,9 @@ impl Reader {
             return;
         };
         let end = self.chapter_end(position.spine);
-        if end == self.items.len() {
+        if self.paged() {
+            self.show_end(position.spine);
+        } else if end == self.items.len() {
             self.adjust = None;
             self.list.scroll_to_end();
         } else {
@@ -670,14 +741,28 @@ impl Reader {
     }
 
     fn book_start(&mut self, _: &BookStart, _: &mut Window, cx: &mut Context<Self>) {
-        self.scroll_to_item(0);
+        if self.paged() {
+            self.show_position(Position::default());
+        } else {
+            self.scroll_to_item(0);
+        }
         self.scrolled(cx);
         cx.notify();
     }
 
     fn book_end(&mut self, _: &BookEnd, _: &mut Window, cx: &mut Context<Self>) {
-        self.adjust = None;
-        self.list.scroll_to_end();
+        self.show_book_end(cx);
+    }
+
+    fn show_book_end(&mut self, cx: &mut Context<Self>) {
+        if self.paged() {
+            if let Some(last) = self.chapters.len().checked_sub(1) {
+                self.show_end(last);
+            }
+        } else {
+            self.adjust = None;
+            self.list.scroll_to_end();
+        }
         self.scrolled(cx);
         cx.notify();
     }
@@ -702,10 +787,7 @@ impl Reader {
             }
             rest -= chapter.len;
         }
-        self.adjust = None;
-        self.list.scroll_to_end();
-        self.scrolled(cx);
-        cx.notify();
+        self.show_book_end(cx);
     }
 
     /// Characters before the position, as a percent of the book. Known when all
@@ -744,6 +826,17 @@ impl Reader {
 
     /// The top block, and how far it is scrolled, as a part of its characters.
     fn position(&self) -> Option<Position> {
+        if self.paged() {
+            let at = self.pages.at;
+            let chapter = self
+                .chapters
+                .get(at.spine)
+                .filter(|_| !self.items.is_empty())?;
+            return Some(Position {
+                spine: at.spine,
+                offset: at.offset.min(chapter.len),
+            });
+        }
         let top = self.list.logical_scroll_top();
         let item = self.items.get(top.item_ix)?;
         let part = match self.list.bounds_for_item(top.item_ix) {
@@ -768,7 +861,7 @@ impl Reader {
 
     fn save_position(&mut self, cx: &mut Context<Self>) {
         self.save_task = None;
-        if self.pending.is_some() || self.adjust.is_some() {
+        if self.pending.is_some() || self.adjust.is_some() || self.pages.moving() {
             return;
         }
         let (Some(id), Some(position)) = (self.book_id.as_deref(), self.position()) else {
@@ -833,6 +926,29 @@ impl Reader {
         cx.notify();
     }
 
+    /// The text stays clear of the search panel.
+    fn panel_width(&self) -> f32 {
+        if self.search.open {
+            search::PANEL_WIDTH
+        } else {
+            0.
+        }
+    }
+
+    fn spacing(&self, ix: usize) -> Spacing {
+        let size = self.font_size;
+        let (top, bottom, line) = match &self.items[ix].block.kind {
+            // A heading does not break across pages.
+            BlockKind::Heading { .. } => (size * 0.8, size * 0.6, None),
+            BlockKind::Paragraph { .. } => (0., size * 0.75, Some(size * LINE_SPACING)),
+            BlockKind::ListItem { .. } => (0., size * 0.4, Some(size * LINE_SPACING)),
+            BlockKind::Pre { .. } => (0., size * 0.75, Some(size * PRE_SCALE * LINE_SPACING)),
+            BlockKind::Image { .. } | BlockKind::Error { .. } => (0., size * 0.75, None),
+            BlockKind::Rule => (size, size, None),
+        };
+        Spacing { top, bottom, line }
+    }
+
     /// Returns the element and the href of an image that must be decoded.
     fn render_item(
         &self,
@@ -842,33 +958,60 @@ impl Reader {
         cx: &App,
     ) -> (AnyElement, Option<String>) {
         let item = &self.items[ix];
-        let theme = cx.theme();
         let viewport = window.viewport_size();
-        // The text stays clear of the search panel.
-        let panel = if self.search.open {
-            search::PANEL_WIDTH
-        } else {
-            0.
-        };
+        let panel = self.panel_width();
         let width = f32::from(viewport.width) - panel;
         let column = (width - 2. * MARGIN).clamp(100., COLUMN_WIDTH);
         let max_height = f32::from(viewport.height) * 0.9;
+        let (block, decode) = self.render_block(ix, Some(view), column, max_height, cx);
+
+        let mut row = div().w_full().flex().justify_center().pr(px(panel));
+        if ix == 0 {
+            row = row.pt(px(MARGIN));
+        } else if item.chapter_start {
+            row = row.pt(px(self.font_size * 3.));
+        }
+        if ix + 1 == self.items.len() {
+            row = row.pb(px(MARGIN * 2.));
+        }
+        (row.child(block).into_any_element(), decode)
+    }
+
+    /// One block at the width of the column. Without a view, the text has no
+    /// mouse handlers, for a measurement. Returns the element and the href of
+    /// an image that must be decoded.
+    fn render_block(
+        &self,
+        ix: usize,
+        view: Option<&Entity<Reader>>,
+        column: f32,
+        max_height: f32,
+        cx: &App,
+    ) -> (AnyElement, Option<String>) {
+        let item = &self.items[ix];
+        let theme = cx.theme();
+        let font_size = self.font_size;
+        let spacing = self.spacing(ix);
+        let text = || match view {
+            Some(view) => self.text_element(ix, view, cx),
+            None => item
+                .styled_text(theme, std::iter::empty())
+                .into_any_element(),
+        };
         let mut decode = None;
 
         let mut content = match &item.block.kind {
             BlockKind::Heading { level, .. } => {
                 let scale = HEADING_SCALE[(*level as usize).clamp(1, 6) - 1];
                 div()
-                    .pt(px(FONT_SIZE * 0.8))
-                    .pb(px(FONT_SIZE * 0.6))
-                    .text_size(px(FONT_SIZE * scale))
-                    .line_height(relative(1.25))
+                    .pt(px(spacing.top))
+                    .pb(px(spacing.bottom))
+                    .text_size(px(font_size * scale))
+                    .line_height(relative(HEADING_SPACING))
                     .font_weight(FontWeight::BOLD)
-                    .child(self.text_element(ix, view, cx))
+                    .child(text())
             }
-            BlockKind::Paragraph { .. } => div()
-                .pb(px(FONT_SIZE * 0.75))
-                .child(self.text_element(ix, view, cx)),
+            BlockKind::Paragraph { .. } => div().pb(px(spacing.bottom)).child(text()),
             BlockKind::ListItem { depth, marker, .. } => {
                 let marker = match marker {
                     Some(Marker::Bullet) => "•".to_string(),
@@ -877,21 +1020,16 @@ impl Reader {
                 };
                 div()
                     .flex()
-                    .pb(px(FONT_SIZE * 0.4))
-                    .pl(px(FONT_SIZE * 1.5 * (*depth as f32 - 1.)))
-                    .child(div().flex_none().w(px(FONT_SIZE * 1.8)).child(marker))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .child(self.text_element(ix, view, cx)),
-                    )
+                    .pb(px(spacing.bottom))
+                    .pl(px(font_size * 1.5 * (*depth as f32 - 1.)))
+                    .child(div().flex_none().w(px(font_size * 1.8)).child(marker))
+                    .child(div().flex_1().min_w_0().child(text()))
             }
             BlockKind::Pre { .. } => div()
-                .pb(px(FONT_SIZE * 0.75))
+                .pb(px(spacing.bottom))
                 .font_family(MONO)
-                .text_size(px(FONT_SIZE * 0.85))
-                .child(self.text_element(ix, view, cx)),
+                .text_size(px(font_size * PRE_SCALE))
+                .child(text()),
             BlockKind::Image { href, alt } => {
                 let frame = match self.pictures.get(href) {
                     Some(picture) => {
@@ -916,16 +1054,17 @@ impl Reader {
                 div()
                     .flex()
                     .justify_center()
-                    .pb(px(FONT_SIZE * 0.75))
+                    .pb(px(spacing.bottom))
                     .child(frame)
             }
             BlockKind::Rule => div()
                 .flex()
                 .justify_center()
-                .py(px(FONT_SIZE))
+                .pt(px(spacing.top))
+                .pb(px(spacing.bottom))
                 .child(div().w(px(column * 0.3)).h(px(1.)).bg(theme.border)),
             BlockKind::Error { message } => div()
-                .pb(px(FONT_SIZE * 0.75))
+                .pb(px(spacing.bottom))
                 .italic()
                 .text_color(theme.danger)
                 .child(message.clone()),
@@ -933,28 +1072,39 @@ impl Reader {
 
         if item.block.quote > 0 {
             content = div()
-                .ml(px(FONT_SIZE * (item.block.quote as f32 - 1.)))
-                .mb(px(FONT_SIZE * 0.75))
-                .pl(px(FONT_SIZE))
+                .ml(px(font_size * (item.block.quote as f32 - 1.)))
+                .mb(px(font_size * QUOTE_GAP))
+                .pl(px(font_size))
                 .border_l_2()
                 .border_color(theme.border)
                 .child(content);
         }
 
-        let mut row = div().w_full().flex().justify_center().pr(px(panel));
-        if ix == 0 {
-            row = row.pt(px(MARGIN));
-        } else if item.chapter_start {
-            row = row.pt(px(FONT_SIZE * 3.));
-        }
-        if ix + 1 == self.items.len() {
-            row = row.pb(px(MARGIN * 2.));
-        }
-        let element = row
-            .child(div().w(px(column)).child(content))
+        // A measurement has no parent to give it the text style.
+        let element = div()
+            .w(px(column))
+            .font_family(self.font_family())
+            .text_size(px(font_size))
+            .line_height(relative(LINE_SPACING))
+            .child(content)
             .into_any_element();
         (element, decode)
     }
+
+    fn font_family(&self) -> &'static str {
+        match self.font {
+            Font::Serif => SERIF,
+            Font::Sans => SANS,
+        }
+    }
+}
+
+/// Space above and below the content of a block, and the line height of its
+/// text, if a page can break between its lines.
+struct Spacing {
+    top: f32,
+    bottom: f32,
+    line: Option<f32>,
 }
 
 fn open_book(path: PathBuf, covers: PathBuf) -> anyhow::Result<Opened> {
@@ -1065,6 +1215,13 @@ impl Reader {
                     .text_color(theme.muted_foreground)
                     .children(percent.map(|percent| format!("{percent:.0}%"))),
             )
+            .child(
+                Button::new("settings")
+                    .label("Settings")
+                    .ghost()
+                    .xsmall()
+                    .on_click(|_, window, cx| window.dispatch_action(Box::new(OpenSettings), cx)),
+            )
     }
 
     fn render_toc(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1166,6 +1323,18 @@ impl Render for Reader {
         if mem::take(&mut self.redraw) {
             window.request_animation_frame();
         }
+        let ready = matches!(self.status, Status::Ready);
+        let pages = if ready && self.paged() {
+            self.update_pages(window, cx).map(|geometry| {
+                let (element, decode) = self.render_pages(geometry, cx);
+                for href in decode {
+                    self.decode(&href, cx);
+                }
+                element
+            })
+        } else {
+            None
+        };
         if !self.seeking
             && let Some(percent) = self.position().and_then(|p| self.percent(p))
             && (self.seek.read(cx).value().end() - percent).abs() > 0.01
@@ -1185,11 +1354,11 @@ impl Render for Reader {
                 .child(text)
                 .into_any_element()
         };
-        let ready = matches!(self.status, Status::Ready);
         let body = match &self.status {
             Status::NoBook => message("Open a book: book-buddy <file.epub>".into()),
             Status::Loading => message("Loading...".into()),
             Status::Failed(error) => message(error.clone().into()),
+            Status::Ready if self.paged() => pages.unwrap_or_else(|| div().into_any_element()),
             Status::Ready => {
                 let view = cx.entity();
                 list(self.list.clone(), move |ix, window, cx| {
@@ -1248,9 +1417,9 @@ impl Render for Reader {
                             .on_action(cx.listener(Self::book_end))
                             .relative()
                             .size_full()
-                            .font_family(SERIF)
-                            .text_size(px(FONT_SIZE))
-                            .line_height(relative(1.5))
+                            .font_family(self.font_family())
+                            .text_size(px(self.font_size))
+                            .line_height(relative(LINE_SPACING))
                             .child(body)
                             .when(ready && (self.toc_open || self.top_bar), |main| {
                                 main.child(

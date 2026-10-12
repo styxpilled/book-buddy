@@ -20,6 +20,7 @@ use gpui_kit::component::{ActiveTheme, Sizable};
 use crate::Import;
 use crate::image_cache::BoundedImageCache;
 use crate::scan::{COVER_HEIGHT, COVER_WIDTH};
+use crate::settings::OpenSettings;
 use crate::store::{Store, cover_path};
 
 const MARGIN: f32 = 32.;
@@ -174,6 +175,13 @@ impl LibraryView {
                     .label("Add books")
                     .small()
                     .on_click(|_, window, cx| window.dispatch_action(Box::new(Import), cx)),
+            )
+            .child(
+                Button::new("settings")
+                    .label("Settings")
+                    .ghost()
+                    .small()
+                    .on_click(|_, window, cx| window.dispatch_action(Box::new(OpenSettings), cx)),
             )
     }
 }

@@ -4,6 +4,7 @@ mod image_cache;
 mod library_view;
 mod reader;
 mod scan;
+mod settings;
 mod shell;
 #[cfg(feature = "sim")]
 mod sim;
@@ -36,6 +37,7 @@ fn main() {
             gpui_kit::init(cx);
             reader::init(cx);
             cx.set_global(store);
+            settings::init(cx);
             cx.bind_keys([
                 KeyBinding::new("escape", Back, Some("Reader")),
                 KeyBinding::new("ctrl-o", Import, None),

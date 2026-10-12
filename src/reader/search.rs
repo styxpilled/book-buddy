@@ -15,7 +15,7 @@ use gpui_kit::component::input::{Input, InputEvent, InputState};
 
 use crate::Back;
 
-use super::{Adjust, LINE_HEIGHT, NextMatch, OpenSearch, PreviousMatch, Reader};
+use super::{Adjust, NextMatch, OpenSearch, PreviousMatch, Reader};
 
 pub(super) const PANEL_WIDTH: f32 = 340.;
 const ROW_HEIGHT: f32 = 56.;
@@ -155,7 +155,7 @@ impl Reader {
         let ix = match self.search.current {
             Some(current) => (current as isize + step).rem_euclid(count as isize) as usize,
             None => {
-                let top = self.list.logical_scroll_top().item_ix;
+                let top = self.top_item();
                 let after = self.search.results.partition_point(|m| m.item < top);
                 if step > 0 {
                     after % count
@@ -181,8 +181,9 @@ impl Reader {
             .scroll_to_item(ix, ScrollStrategy::Center);
         self.scroll_to_position(position);
         // A few lines above the match stay in view.
+        let line = self.line_height();
         if let Some(Adjust::Part { margin, .. }) = &mut self.adjust {
-            *margin = 3. * LINE_HEIGHT;
+            *margin = 3. * line;
         }
         self.scrolled(cx);
         cx.notify();
