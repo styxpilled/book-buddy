@@ -15,17 +15,20 @@ use gpui::{
     Focusable, FontStyle, FontWeight, HighlightStyle, Hsla, InteractiveElement, InteractiveText,
     IntoElement, KeyBinding, ListAlignment, ListOffset, ListState, MouseMoveEvent, ParentElement,
     Render, RenderImage, ScrollStrategy, SharedString, StatefulInteractiveElement, Styled,
-    StyledText, Subscription, Task, UnderlineStyle, UniformListScrollHandle, Window, actions, div,
-    img, list, prelude::FluentBuilder, px, relative, uniform_list,
+    StyledText, Subscription, Task, UnderlineStyle, UniformListScrollHandle, Window, actions,
+    combine_highlights, div, img, list, prelude::FluentBuilder, px, relative, uniform_list,
 };
 use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
 use gpui_kit::component::{ActiveTheme, Theme};
 use image::imageops::FilterType;
 use image::{Frame, ImageReader};
 
+mod search;
+
 use crate::Back;
 use crate::scan;
 use crate::store::Store;
+use search::Search;
 
 const SERIF: &str = "Literata";
 const MONO: &str = "Consolas";
@@ -59,6 +62,9 @@ actions!(
         BookEnd,
         ToggleToc,
         GoBack,
+        OpenSearch,
+        NextMatch,
+        PreviousMatch,
     ]
 );
 
@@ -79,6 +85,12 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("ctrl-end", BookEnd, context),
         KeyBinding::new("t", ToggleToc, context),
         KeyBinding::new("alt-left", GoBack, context),
+        KeyBinding::new("ctrl-f", OpenSearch, context),
+        KeyBinding::new("f3", NextMatch, context),
+        KeyBinding::new("shift-f3", PreviousMatch, context),
+        KeyBinding::new("escape", Back, Some("Search")),
+        KeyBinding::new("f3", NextMatch, Some("Search")),
+        KeyBinding::new("shift-f3", PreviousMatch, Some("Search")),
     ]);
 
     let fonts: [&'static [u8]; 8] = [
@@ -115,24 +127,22 @@ struct Item {
 
 impl Item {
     fn new(block: Block, spine: usize, chapter_start: bool) -> Self {
-        let mut text = String::new();
+        let text = block.text();
         let mut styles = Vec::new();
         if let BlockKind::Heading { runs, .. }
         | BlockKind::Paragraph { runs }
         | BlockKind::ListItem { runs, .. } = &block.kind
         {
+            let mut start = 0;
             for run in runs {
-                let start = text.len();
-                text.push_str(&run.text);
+                let end = start + run.text.len();
                 if run.bold || run.italic || run.link.is_some() {
-                    styles.push((start..text.len(), run.clone()));
+                    styles.push((start..end, run.clone()));
                 }
+                start = end;
             }
         }
-        let len = match &block.kind {
-            BlockKind::Pre { text: pre } => pre.chars().count(),
-            _ => text.chars().count(),
-        };
+        let len = text.chars().count();
         Self {
             block,
             spine,
@@ -143,26 +153,40 @@ impl Item {
         }
     }
 
-    fn styled_text(&self, theme: &Theme) -> StyledText {
+    /// `mark` is a search match to highlight.
+    fn styled_text(&self, theme: &Theme, mark: Option<Range<usize>>) -> StyledText {
         let link = theme.link;
-        StyledText::new(self.text.clone()).with_highlights(
-            self.styles
-                .iter()
-                .map(move |(range, run)| (range.clone(), highlight(run, link))),
-        )
+        let styles = self
+            .styles
+            .iter()
+            .map(move |(range, run)| (range.clone(), highlight(run, link)));
+        let mark = mark.map(|range| {
+            let style = HighlightStyle {
+                background_color: Some(theme.selection),
+                ..Default::default()
+            };
+            (range, style)
+        });
+        StyledText::new(self.text.clone()).with_highlights(combine_highlights(styles, mark))
     }
 
     /// The text, with a click handler on each link.
-    fn text(&self, ix: usize, theme: &Theme, view: Entity<Reader>) -> AnyElement {
+    fn text(
+        &self,
+        ix: usize,
+        theme: &Theme,
+        view: Entity<Reader>,
+        mark: Option<Range<usize>>,
+    ) -> AnyElement {
         let (ranges, hrefs): (Vec<_>, Vec<_>) = self
             .styles
             .iter()
             .filter_map(|(range, run)| Some((range.clone(), run.link.clone()?)))
             .unzip();
         if ranges.is_empty() {
-            return self.styled_text(theme).into_any_element();
+            return self.styled_text(theme, mark).into_any_element();
         }
-        InteractiveText::new(("text", ix), self.styled_text(theme))
+        InteractiveText::new(("text", ix), self.styled_text(theme, mark))
             .on_click(ranges, move |link, _, cx| {
                 view.update(cx, |reader, cx| reader.follow(&hrefs[link], cx));
             })
@@ -234,8 +258,9 @@ impl From<Position> for Target {
 
 /// A scroll that needs the layout of the list first.
 enum Adjust {
-    /// Scroll to this part of the item height, once the item is measured.
-    Part(usize, f32),
+    /// Scroll to this part of the item height, less the margin, once the item
+    /// is measured.
+    Part { ix: usize, part: f32, margin: f32 },
     /// Scroll up one screen, after one layout measures the items above the top.
     Above { laid_out: bool },
 }
@@ -260,6 +285,7 @@ pub struct Reader {
     decoded: VecDeque<String>,
     dropped: Vec<Arc<RenderImage>>,
     toc_open: bool,
+    search: Search,
     toc_scroll: UniformListScrollHandle,
     top_bar: bool,
     /// The list corrects a scroll past the end in its layout, after the render.
@@ -322,6 +348,7 @@ impl Reader {
             decoded: VecDeque::new(),
             dropped: Vec::new(),
             toc_open: false,
+            search: Search::default(),
             toc_scroll: UniformListScrollHandle::new(),
             top_bar: false,
             redraw: false,
@@ -495,7 +522,11 @@ impl Reader {
             (into as f32 / item.len as f32).min(1.)
         };
         self.scroll_to_item(ix);
-        self.adjust = (part > 0.).then_some(Adjust::Part(ix, part));
+        self.adjust = (part > 0.).then_some(Adjust::Part {
+            ix,
+            part,
+            margin: 0.,
+        });
     }
 
     fn scroll_to_item(&mut self, ix: usize) {
@@ -547,9 +578,12 @@ impl Reader {
         })
     }
 
-    /// The last entry of the table of contents at or before the position.
     fn current_toc(&self) -> Option<usize> {
-        let position = self.position()?;
+        self.toc_at(self.position()?)
+    }
+
+    /// The last entry of the table of contents at or before the position.
+    fn toc_at(&self, position: Position) -> Option<usize> {
         let mut current = None;
         for (ix, entry) in self.toc.iter().enumerate() {
             let Some((spine, anchor)) = entry else {
@@ -590,8 +624,10 @@ impl Reader {
         cx.notify();
     }
 
-    fn back(&mut self, _: &Back, _: &mut Window, cx: &mut Context<Self>) {
-        if self.toc_open {
+    fn back(&mut self, _: &Back, window: &mut Window, cx: &mut Context<Self>) {
+        if self.search.open {
+            self.close_search(window, cx);
+        } else if self.toc_open {
             self.toc_open = false;
             cx.notify();
         } else {
@@ -826,9 +862,17 @@ impl Reader {
         cx: &App,
     ) -> (AnyElement, Option<String>) {
         let item = &self.items[ix];
+        let mark = self.search.marked(ix);
         let theme = cx.theme();
         let viewport = window.viewport_size();
-        let column = (f32::from(viewport.width) - 2. * MARGIN).clamp(100., COLUMN_WIDTH);
+        // The text stays clear of the search panel.
+        let panel = if self.search.open {
+            search::PANEL_WIDTH
+        } else {
+            0.
+        };
+        let width = f32::from(viewport.width) - panel;
+        let column = (width - 2. * MARGIN).clamp(100., COLUMN_WIDTH);
         let max_height = f32::from(viewport.height) * 0.9;
         let mut decode = None;
 
@@ -841,13 +885,14 @@ impl Reader {
                     .text_size(px(FONT_SIZE * scale))
                     .line_height(relative(1.25))
                     .font_weight(FontWeight::BOLD)
-                    .child(item.text(ix, theme, view.clone()))
+                    .child(item.text(ix, theme, view.clone(), mark.clone()))
             }
-            BlockKind::Paragraph { .. } => {
-                div()
-                    .pb(px(FONT_SIZE * 0.75))
-                    .child(item.text(ix, theme, view.clone()))
-            }
+            BlockKind::Paragraph { .. } => div().pb(px(FONT_SIZE * 0.75)).child(item.text(
+                ix,
+                theme,
+                view.clone(),
+                mark.clone(),
+            )),
             BlockKind::ListItem { depth, marker, .. } => {
                 let marker = match marker {
                     Some(Marker::Bullet) => "•".to_string(),
@@ -859,18 +904,18 @@ impl Reader {
                     .pb(px(FONT_SIZE * 0.4))
                     .pl(px(FONT_SIZE * 1.5 * (*depth as f32 - 1.)))
                     .child(div().flex_none().w(px(FONT_SIZE * 1.8)).child(marker))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .child(item.text(ix, theme, view.clone())),
-                    )
+                    .child(div().flex_1().min_w_0().child(item.text(
+                        ix,
+                        theme,
+                        view.clone(),
+                        mark.clone(),
+                    )))
             }
-            BlockKind::Pre { text } => div()
+            BlockKind::Pre { .. } => div()
                 .pb(px(FONT_SIZE * 0.75))
                 .font_family(MONO)
                 .text_size(px(FONT_SIZE * 0.85))
-                .child(text.clone()),
+                .child(item.styled_text(theme, mark)),
             BlockKind::Image { href, alt } => {
                 let frame = match self.pictures.get(href) {
                     Some(picture) => {
@@ -920,7 +965,7 @@ impl Reader {
                 .child(content);
         }
 
-        let mut row = div().w_full().flex().justify_center();
+        let mut row = div().w_full().flex().justify_center().pr(px(panel));
         if ix == 0 {
             row = row.pt(px(MARGIN));
         } else if item.chapter_start {
@@ -1121,11 +1166,11 @@ impl Render for Reader {
             window.drop_image(image).ok();
         }
         match self.adjust {
-            Some(Adjust::Part(ix, part)) => match self.list.bounds_for_item(ix) {
+            Some(Adjust::Part { ix, part, margin }) => match self.list.bounds_for_item(ix) {
                 Some(bounds) => {
                     self.list.scroll_to(ListOffset {
                         item_ix: ix,
-                        offset_in_item: bounds.size.height * part,
+                        offset_in_item: (bounds.size.height * part - px(margin)).max(px(0.)),
                     });
                     self.adjust = None;
                 }
@@ -1185,21 +1230,10 @@ impl Render for Reader {
         let (background, foreground) = (theme.background, theme.foreground);
         let (chrome_font, chrome_size) = (theme.font_family.clone(), theme.font_size);
 
+        // The search box is outside the "Reader" key context, so that the keys
+        // of the reader do not take the characters that you type.
         div()
-            .id("reader")
-            .key_context("Reader")
-            .track_focus(&self.focus)
-            .on_action(cx.listener(Self::back))
-            .on_action(cx.listener(Self::toggle_toc))
-            .on_action(cx.listener(Self::go_back))
-            .on_action(cx.listener(Self::page_down))
-            .on_action(cx.listener(Self::page_up))
-            .on_action(cx.listener(Self::line_down))
-            .on_action(cx.listener(Self::line_up))
-            .on_action(cx.listener(Self::chapter_start))
-            .on_action(cx.listener(Self::chapter_end_key))
-            .on_action(cx.listener(Self::book_start))
-            .on_action(cx.listener(Self::book_end))
+            .id("reader-root")
             .on_mouse_move(cx.listener(Self::mouse_moved))
             .size_full()
             .flex()
@@ -1211,23 +1245,52 @@ impl Render for Reader {
                     .relative()
                     .flex_1()
                     .min_h_0()
-                    .font_family(SERIF)
-                    .text_size(px(FONT_SIZE))
-                    .line_height(relative(1.5))
-                    .child(body)
-                    .when(ready && (self.toc_open || self.top_bar), |main| {
-                        main.child(
-                            div()
-                                .absolute()
-                                .top_0()
-                                .left_0()
-                                .size_full()
-                                .font_family(chrome_font.clone())
-                                .text_size(chrome_size)
-                                .line_height(relative(1.4))
-                                .when(self.toc_open, |chrome| chrome.child(self.render_toc(cx)))
-                                .when(self.top_bar, |chrome| chrome.child(self.render_top_bar(cx))),
-                        )
+                    .child(
+                        div()
+                            .id("reader")
+                            .key_context("Reader")
+                            .track_focus(&self.focus)
+                            .on_action(cx.listener(Self::back))
+                            .on_action(cx.listener(Self::toggle_toc))
+                            .on_action(cx.listener(Self::go_back))
+                            .on_action(cx.listener(Self::open_search))
+                            .on_action(cx.listener(Self::next_match))
+                            .on_action(cx.listener(Self::previous_match))
+                            .on_action(cx.listener(Self::page_down))
+                            .on_action(cx.listener(Self::page_up))
+                            .on_action(cx.listener(Self::line_down))
+                            .on_action(cx.listener(Self::line_up))
+                            .on_action(cx.listener(Self::chapter_start))
+                            .on_action(cx.listener(Self::chapter_end_key))
+                            .on_action(cx.listener(Self::book_start))
+                            .on_action(cx.listener(Self::book_end))
+                            .relative()
+                            .size_full()
+                            .font_family(SERIF)
+                            .text_size(px(FONT_SIZE))
+                            .line_height(relative(1.5))
+                            .child(body)
+                            .when(ready && (self.toc_open || self.top_bar), |main| {
+                                main.child(
+                                    div()
+                                        .absolute()
+                                        .top_0()
+                                        .left_0()
+                                        .size_full()
+                                        .font_family(chrome_font.clone())
+                                        .text_size(chrome_size)
+                                        .line_height(relative(1.4))
+                                        .when(self.toc_open, |chrome| {
+                                            chrome.child(self.render_toc(cx))
+                                        })
+                                        .when(self.top_bar, |chrome| {
+                                            chrome.child(self.render_top_bar(cx))
+                                        }),
+                                )
+                            }),
+                    )
+                    .when(ready && self.search.open, |main| {
+                        main.child(self.render_search(cx))
                     }),
             )
             .when(ready, |reader| {

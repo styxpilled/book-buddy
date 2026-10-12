@@ -64,6 +64,19 @@ pub struct Run {
     pub link: Option<String>,
 }
 
+impl Block {
+    /// The text that the offsets count: the runs, or the text of a `pre`.
+    pub fn text(&self) -> String {
+        match &self.kind {
+            BlockKind::Heading { runs, .. }
+            | BlockKind::Paragraph { runs }
+            | BlockKind::ListItem { runs, .. } => runs.iter().map(|r| r.text.as_str()).collect(),
+            BlockKind::Pre { text } => text.clone(),
+            _ => String::new(),
+        }
+    }
+}
+
 impl Chapter {
     pub fn error(message: String) -> Self {
         Self {

@@ -1,5 +1,7 @@
 mod xhtml;
 
+#[cfg(test)]
+pub(crate) use xhtml::parse as parse_xhtml;
 pub use xhtml::{Block, BlockKind, Chapter, Marker, Run};
 
 use std::fs::File;
