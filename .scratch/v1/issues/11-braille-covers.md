@@ -1,7 +1,7 @@
 # 11: Braille cover thumbnails (stretch goal)
 
 Status: needs-triage
-Spec: [../spec.md](../spec.md) (Stretch goal)
+Spec: [../spec.md](../spec.md) (Stretch goals)
 Depends on: 04
 
 ## Scope

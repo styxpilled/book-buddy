@@ -12,8 +12,8 @@ use book_buddy::library::{FileInfo, Position};
 use chrono::Utc;
 use gpui::{
     AnyElement, App, AppContext, BorrowAppContext, Context, Entity, EventEmitter, FocusHandle,
-    Focusable, FontStyle, FontWeight, HighlightStyle, Hsla, InteractiveElement, InteractiveText,
-    IntoElement, KeyBinding, ListAlignment, ListOffset, ListState, MouseMoveEvent, ParentElement,
+    Focusable, FontStyle, FontWeight, HighlightStyle, Hsla, InteractiveElement, IntoElement,
+    KeyBinding, ListAlignment, ListOffset, ListState, MouseButton, MouseMoveEvent, ParentElement,
     Render, RenderImage, ScrollStrategy, SharedString, StatefulInteractiveElement, Styled,
     StyledText, Subscription, Task, UnderlineStyle, UniformListScrollHandle, Window, actions,
     combine_highlights, div, img, list, prelude::FluentBuilder, px, relative, uniform_list,
@@ -24,11 +24,13 @@ use image::imageops::FilterType;
 use image::{Frame, ImageReader};
 
 mod search;
+mod selection;
 
 use crate::Back;
 use crate::scan;
 use crate::store::Store;
 use search::Search;
+use selection::Selection;
 
 const SERIF: &str = "Literata";
 const MONO: &str = "Consolas";
@@ -65,6 +67,7 @@ actions!(
         OpenSearch,
         NextMatch,
         PreviousMatch,
+        CopySelection,
     ]
 );
 
@@ -88,6 +91,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("ctrl-f", OpenSearch, context),
         KeyBinding::new("f3", NextMatch, context),
         KeyBinding::new("shift-f3", PreviousMatch, context),
+        KeyBinding::new("ctrl-c", CopySelection, context),
         KeyBinding::new("escape", Back, Some("Search")),
         KeyBinding::new("f3", NextMatch, Some("Search")),
         KeyBinding::new("shift-f3", PreviousMatch, Some("Search")),
@@ -153,44 +157,18 @@ impl Item {
         }
     }
 
-    /// `mark` is a search match to highlight.
-    fn styled_text(&self, theme: &Theme, mark: Option<Range<usize>>) -> StyledText {
+    /// `extra` are highlights for search and selection.
+    fn styled_text(
+        &self,
+        theme: &Theme,
+        extra: impl IntoIterator<Item = (Range<usize>, HighlightStyle)>,
+    ) -> StyledText {
         let link = theme.link;
         let styles = self
             .styles
             .iter()
             .map(move |(range, run)| (range.clone(), highlight(run, link)));
-        let mark = mark.map(|range| {
-            let style = HighlightStyle {
-                background_color: Some(theme.selection),
-                ..Default::default()
-            };
-            (range, style)
-        });
-        StyledText::new(self.text.clone()).with_highlights(combine_highlights(styles, mark))
-    }
-
-    /// The text, with a click handler on each link.
-    fn text(
-        &self,
-        ix: usize,
-        theme: &Theme,
-        view: Entity<Reader>,
-        mark: Option<Range<usize>>,
-    ) -> AnyElement {
-        let (ranges, hrefs): (Vec<_>, Vec<_>) = self
-            .styles
-            .iter()
-            .filter_map(|(range, run)| Some((range.clone(), run.link.clone()?)))
-            .unzip();
-        if ranges.is_empty() {
-            return self.styled_text(theme, mark).into_any_element();
-        }
-        InteractiveText::new(("text", ix), self.styled_text(theme, mark))
-            .on_click(ranges, move |link, _, cx| {
-                view.update(cx, |reader, cx| reader.follow(&hrefs[link], cx));
-            })
-            .into_any_element()
+        StyledText::new(self.text.clone()).with_highlights(combine_highlights(styles, extra))
     }
 }
 
@@ -286,6 +264,7 @@ pub struct Reader {
     dropped: Vec<Arc<RenderImage>>,
     toc_open: bool,
     search: Search,
+    selection: Option<Selection>,
     toc_scroll: UniformListScrollHandle,
     top_bar: bool,
     /// The list corrects a scroll past the end in its layout, after the render.
@@ -349,6 +328,7 @@ impl Reader {
             dropped: Vec::new(),
             toc_open: false,
             search: Search::default(),
+            selection: None,
             toc_scroll: UniformListScrollHandle::new(),
             top_bar: false,
             redraw: false,
@@ -862,7 +842,6 @@ impl Reader {
         cx: &App,
     ) -> (AnyElement, Option<String>) {
         let item = &self.items[ix];
-        let mark = self.search.marked(ix);
         let theme = cx.theme();
         let viewport = window.viewport_size();
         // The text stays clear of the search panel.
@@ -885,14 +864,11 @@ impl Reader {
                     .text_size(px(FONT_SIZE * scale))
                     .line_height(relative(1.25))
                     .font_weight(FontWeight::BOLD)
-                    .child(item.text(ix, theme, view.clone(), mark.clone()))
+                    .child(self.text_element(ix, view, cx))
             }
-            BlockKind::Paragraph { .. } => div().pb(px(FONT_SIZE * 0.75)).child(item.text(
-                ix,
-                theme,
-                view.clone(),
-                mark.clone(),
-            )),
+            BlockKind::Paragraph { .. } => div()
+                .pb(px(FONT_SIZE * 0.75))
+                .child(self.text_element(ix, view, cx)),
             BlockKind::ListItem { depth, marker, .. } => {
                 let marker = match marker {
                     Some(Marker::Bullet) => "•".to_string(),
@@ -904,18 +880,18 @@ impl Reader {
                     .pb(px(FONT_SIZE * 0.4))
                     .pl(px(FONT_SIZE * 1.5 * (*depth as f32 - 1.)))
                     .child(div().flex_none().w(px(FONT_SIZE * 1.8)).child(marker))
-                    .child(div().flex_1().min_w_0().child(item.text(
-                        ix,
-                        theme,
-                        view.clone(),
-                        mark.clone(),
-                    )))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(self.text_element(ix, view, cx)),
+                    )
             }
             BlockKind::Pre { .. } => div()
                 .pb(px(FONT_SIZE * 0.75))
                 .font_family(MONO)
                 .text_size(px(FONT_SIZE * 0.85))
-                .child(item.styled_text(theme, mark)),
+                .child(self.text_element(ix, view, cx)),
             BlockKind::Image { href, alt } => {
                 let frame = match self.pictures.get(href) {
                     Some(picture) => {
@@ -1235,6 +1211,11 @@ impl Render for Reader {
         div()
             .id("reader-root")
             .on_mouse_move(cx.listener(Self::mouse_moved))
+            .capture_any_mouse_down(cx.listener(|reader, _, _, cx| reader.clear_selection(cx)))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|reader, _, _, cx| reader.end_drag(cx)),
+            )
             .size_full()
             .flex()
             .flex_col()
@@ -1254,6 +1235,7 @@ impl Render for Reader {
                             .on_action(cx.listener(Self::toggle_toc))
                             .on_action(cx.listener(Self::go_back))
                             .on_action(cx.listener(Self::open_search))
+                            .on_action(cx.listener(Self::copy))
                             .on_action(cx.listener(Self::next_match))
                             .on_action(cx.listener(Self::previous_match))
                             .on_action(cx.listener(Self::page_down))

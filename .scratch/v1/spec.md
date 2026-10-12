@@ -186,7 +186,7 @@ struct Run {
 ### Selection
 
 - Click and drag to select text inside one block. Double-click selects a word. Ctrl+C copies the selection.
-- Selection across blocks is not supported.
+- Selection across blocks is not supported in the first release. See [Stretch goals](#stretch-goals).
 
 ### Chrome
 
@@ -237,9 +237,10 @@ Show settings in a small panel that opens from the library and the reader:
 - **Single instance:** use a named mutex. A second instance sends its path to the first instance through a named pipe, and then exits. The first instance brings its window to the front and opens the book.
 - **Window state:** save the position, size, maximized and fullscreen state when the app closes. Restore them on startup. Do not restore a position that is off-screen.
 
-## Stretch goal
+## Stretch goals
 
 - Cover thumbnails as braille or ASCII art, for a terminal look in the library grid. Make the cover image grayscale, apply dithering, and map each 2x4 pixel cell to a braille character. This is a library view option only. It is not in the first release.
+- Selection across blocks: drag across paragraphs, with auto-scroll at the edges of the list. Copy joins the blocks with a blank line. It is not in the first release. See issue 12.
 
 ## Risks
 

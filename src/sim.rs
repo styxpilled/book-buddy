@@ -201,15 +201,19 @@ impl Sim {
                 }
                 "ok".to_string()
             }
+            // `down:x,y,2` is the second press of a double click, held.
             "down" | "mdown" => {
-                let at = coordinates::<2>(value)?;
+                let (at, count) = match coordinates::<3>(value) {
+                    Ok([x, y, count]) => ([x, y], count.max(1) as usize),
+                    Err(_) => (coordinates::<2>(value)?, 1),
+                };
                 let button = if kind == "mdown" {
                     MouseButton::Middle
                 } else {
                     MouseButton::Left
                 };
                 self.move_to((at[0], at[1]), handle, cx)?;
-                self.button(button, true, 1, handle, cx)?;
+                self.button(button, true, count, handle, cx)?;
                 "ok".to_string()
             }
             "up" | "mup" => {
