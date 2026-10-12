@@ -27,8 +27,9 @@ pub(super) struct Geometry {
 }
 
 impl Geometry {
-    fn same_text(&self, other: &Geometry) -> bool {
-        (self.font, self.font_size) == (other.font, other.font_size)
+    /// Only the window size is different. Other changes apply at once.
+    fn resized(&self, other: &Geometry) -> bool {
+        (self.panel, self.font, self.font_size) == (other.panel, other.font, other.font_size)
     }
 }
 
@@ -184,10 +185,10 @@ impl Reader {
                 self.pages.resized = None;
                 false
             }
-            (Some(old), Some((size, since))) if old.same_text(&new) && size == new => {
+            (Some(old), Some((size, since))) if old.resized(&new) && size == new => {
                 since.elapsed() >= RESIZE_DELAY
             }
-            (Some(old), _) if old.same_text(&new) => {
+            (Some(old), _) if old.resized(&new) => {
                 self.pages.resized = Some((new, Instant::now()));
                 cx.spawn(async move |this, cx| {
                     cx.background_executor().timer(RESIZE_DELAY).await;
