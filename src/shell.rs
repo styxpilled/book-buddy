@@ -19,7 +19,7 @@ pub struct Shell {
     settings: Option<Entity<SettingsPanel>>,
     _settings_subscription: Option<Subscription>,
     _subscriptions: Vec<Subscription>,
-    _reader_subscription: Option<Subscription>,
+    _reader_subscriptions: Vec<Subscription>,
 }
 
 impl Shell {
@@ -35,7 +35,7 @@ impl Shell {
             settings: None,
             _settings_subscription: None,
             _subscriptions: vec![subscription],
-            _reader_subscription: None,
+            _reader_subscriptions: Vec::new(),
         };
         match path {
             Some(path) => shell.open(path, window, cx),
@@ -47,12 +47,13 @@ impl Shell {
     fn open(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         self.close(window, cx);
         let reader = cx.new(|cx| Reader::new(Some(path), cx));
-        self._reader_subscription =
-            Some(
-                cx.subscribe_in(&reader, window, |this, _, event, window, cx| match event {
-                    ReaderEvent::Close => this.close(window, cx),
-                }),
-            );
+        self._reader_subscriptions = vec![
+            cx.subscribe_in(&reader, window, |this, _, event, window, cx| match event {
+                ReaderEvent::Close => this.close(window, cx),
+            }),
+            // The library stays until the book is ready.
+            cx.observe(&reader, |_, _, cx| cx.notify()),
+        ];
         reader.focus_handle(cx).focus(window, cx);
         self.reader = Some(reader);
         cx.notify();
@@ -92,7 +93,7 @@ impl Shell {
                 store.library.last_book = None;
                 store.save();
             });
-            self._reader_subscription = None;
+            self._reader_subscriptions.clear();
             self.library.focus_handle(cx).focus(window, cx);
             cx.notify();
         }
@@ -117,8 +118,8 @@ impl Shell {
 impl Render for Shell {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let content = match &self.reader {
-            Some(reader) => reader.clone().into_any_element(),
-            None => self.library.clone().into_any_element(),
+            Some(reader) if !reader.read(cx).loading() => reader.clone().into_any_element(),
+            _ => self.library.clone().into_any_element(),
         };
         div()
             .relative()

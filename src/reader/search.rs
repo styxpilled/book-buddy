@@ -301,15 +301,7 @@ impl Reader {
             .border_l_1()
             .border_color(theme.border)
             .occlude()
-            .child(
-                div()
-                    .absolute()
-                    .top_0()
-                    .bottom_0()
-                    .left(px(-6.))
-                    .w(px(1.))
-                    .bg(theme.success),
-            )
+            .child(style::side_shadow(false, cx))
             .children(self.search.input.as_ref().map(|input| {
                 div()
                     .mx(px(16.))

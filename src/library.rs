@@ -62,6 +62,8 @@ pub struct Settings {
     pub show_hidden: bool,
     /// Show the bars of the reader only when the pointer is near them.
     pub hide_bars: bool,
+    /// Dither the images of books to the two tones of the theme, like the covers.
+    pub dither_images: bool,
 }
 
 pub const FONT_SIZES: RangeInclusive<u32> = 12..=36;
@@ -75,6 +77,7 @@ impl Default for Settings {
             theme: Theme::Light,
             show_hidden: false,
             hide_bars: false,
+            dither_images: true,
         }
     }
 }
@@ -171,10 +174,17 @@ impl Library {
     /// Finds the entry for a file, or adds one, and makes it the last opened book.
     pub fn open(&mut self, info: FileInfo, now: DateTime<Utc>) -> &mut BookEntry {
         let index = self.upsert(info, now);
-        self.last_book = Some(self.books[index].id.clone());
-        let entry = &mut self.books[index];
-        entry.last_opened = Some(now);
-        entry
+        let id = self.books[index].id.clone();
+        self.mark_opened(&id, now);
+        &mut self.books[index]
+    }
+
+    /// Makes a book the last opened book.
+    pub fn mark_opened(&mut self, id: &str, now: DateTime<Utc>) {
+        if let Some(entry) = self.book_mut(id) {
+            entry.last_opened = Some(now);
+            self.last_book = Some(id.to_string());
+        }
     }
 
     /// Finds the entry for a file, or adds one.
@@ -345,6 +355,7 @@ mod tests {
         assert_eq!(library.settings.font_size, 18);
         assert!(!library.settings.show_hidden);
         assert!(!library.settings.hide_bars);
+        assert!(library.settings.dither_images);
 
         library.settings.font = Font::Sans;
         library.settings.font_size = 24;

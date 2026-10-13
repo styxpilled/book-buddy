@@ -1,6 +1,6 @@
 # 04: Faster images on book open
 
-Status: needs-triage
+Status: done
 Spec: [../spec.md](../spec.md)
 Depends on: none
 
@@ -68,6 +68,12 @@ When the chapter of the saved position loads, `decode_near` in `append` starts t
 
 - Small images now show with the text: the decode ends before the first render, or at most 4 ms after it.
 - The large cover shows about 73 ms after the text. Before this change, it took 86 ms.
+
+### Open waits for the images (2026-10-13)
+
+The library stays on screen until the text at the saved position is ready and the images that `decode_near` started are decoded, for at most 300 ms (`IMAGE_WAIT`). Then the reader shows the text and the images together. `Shell` shows the reader only when `Reader::loading()` is false. The open is recorded (`Library::mark_opened`) at that moment, so the library order does not change while the library is on screen.
+
+When dithering is on (`dither_images`), the image is resized directly to one pixel per dot and then dithered: 24 ms for the `pg174` cover.
 
 ### Not done
 

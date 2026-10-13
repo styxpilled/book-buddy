@@ -8,6 +8,7 @@ use gpui::{
 use gpui_kit::component::{ActiveTheme, ThemeMode};
 
 use crate::Back;
+use crate::menu;
 use crate::scan;
 use crate::store::Store;
 use crate::style;
@@ -236,7 +237,6 @@ impl Render for SettingsPanel {
             .bg(theme.popover)
             .text_color(theme.popover_foreground)
             .occlude()
-            .on_click(|_, _, cx| cx.stop_propagation())
             .children(style::crop_marks(cx))
             .child(
                 div()
@@ -299,6 +299,17 @@ impl Render for SettingsPanel {
                 cx,
             ))
             .child(row(
+                "IMAGES =",
+                choice(
+                    "images",
+                    settings.dither_images,
+                    &[(false, "ORIGINAL", true), (true, "DITHERED", true)],
+                    |s, v| s.dither_images = v,
+                    cx,
+                ),
+                cx,
+            ))
+            .child(row(
                 "SHOW HIDDEN =",
                 choice(
                     "show-hidden",
@@ -312,21 +323,22 @@ impl Render for SettingsPanel {
             .child(div().h(px(1.)).bg(theme.border))
             .child(folders);
 
-        div()
-            .id("settings")
-            .key_context("Settings")
-            .track_focus(&self.focus)
-            .on_action(cx.listener(Self::close))
-            .absolute()
-            .top_0()
-            .left_0()
-            .size_full()
-            .flex()
-            .items_center()
-            .justify_center()
-            .p_4()
-            .bg(theme.overlay)
-            .on_click(cx.listener(|_, _, _, cx| cx.emit(CloseSettings)))
-            .child(panel)
+        let view = cx.entity().downgrade();
+        menu::shield("settings", move |_, cx| {
+            view.update(cx, |_, cx| cx.emit(CloseSettings)).ok();
+        })
+        .key_context("Settings")
+        .track_focus(&self.focus)
+        .on_action(cx.listener(Self::close))
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .p_4()
+        .bg(theme.overlay)
+        .child(panel)
     }
 }

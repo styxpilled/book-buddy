@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use book_buddy::book::{Block, BlockKind, Book, Chapter, Marker, Run};
+use book_buddy::dither::dither_small;
 use book_buddy::library::{FileInfo, Font, Mode, Position};
 use chrono::Utc;
 use fast_image_resize::Resizer;
@@ -51,8 +52,12 @@ const MARGIN: f32 = 32.;
 const DECODED_IMAGES: usize = 16;
 /// Longest side of a decoded image, in pixels.
 const IMAGE_MAX: u32 = 2048;
+/// Width of one dot of a dithered image, in pixels of the widest column.
+const DITHER_DOT: f32 = 2.;
 /// Blocks after the position of an opened book whose images decode at once.
 const DECODE_AHEAD: usize = 8;
+/// The longest time that an opened book waits for these images.
+const IMAGE_WAIT: Duration = Duration::from_millis(300);
 const SAVE_DELAY: Duration = Duration::from_secs(1);
 const TOP_BAR_HEIGHT: f32 = 40.;
 const BOTTOM_BAR_HEIGHT: f32 = 38.;
@@ -275,6 +280,11 @@ pub struct Reader {
     back: Vec<Position>,
     save_task: Option<Task<()>>,
     pictures: HashMap<String, Picture>,
+    /// The tones that images are dithered to, dark and light. `None` keeps
+    /// the colors of the images.
+    tones: Option<Tones>,
+    /// Images that must be decoded before the opened book shows.
+    waiting: Vec<String>,
     decoded: VecDeque<String>,
     dropped: Vec<Arc<RenderImage>>,
     toc_open: bool,
@@ -341,6 +351,8 @@ impl Reader {
             back: Vec::new(),
             save_task: None,
             pictures: HashMap::new(),
+            tones: image_tones(cx),
+            waiting: Vec::new(),
             decoded: VecDeque::new(),
             dropped: Vec::new(),
             toc_open: false,
@@ -420,7 +432,9 @@ impl Reader {
             .collect();
         self.book = Some(opened.book);
         let position = cx.update_global(|store: &mut Store, _| {
-            let position = store.library.open(opened.info, Utc::now()).position;
+            // The open is recorded when the book shows, so that the order of
+            // the library does not change while it is still on screen.
+            let position = store.library.add(opened.info, Utc::now()).position;
             store.save();
             position
         });
@@ -506,11 +520,55 @@ impl Reader {
             let position = self.target_position(&target);
             self.scroll_to_position(position);
             self.decode_near(position, cx);
+            if self.loading() {
+                self.wait_for_images(position, cx);
+            }
         }
-        if self.pending.is_none() && !self.items.is_empty() {
-            self.status = Status::Ready;
-        }
+        self.show_when_ready(cx);
         cx.notify();
+    }
+
+    /// The book is not ready to show yet.
+    pub fn loading(&self) -> bool {
+        matches!(self.status, Status::Loading)
+    }
+
+    fn wait_for_images(&mut self, position: Position, cx: &mut Context<Self>) {
+        self.waiting = self
+            .images_near(position)
+            .into_iter()
+            .filter(|href| matches!(self.pictures[href].decode, Decode::Running))
+            .collect();
+        if !self.waiting.is_empty() {
+            cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(IMAGE_WAIT).await;
+                this.update(cx, |reader, cx| {
+                    reader.waiting.clear();
+                    reader.show_when_ready(cx);
+                })
+                .ok();
+            })
+            .detach();
+        }
+    }
+
+    /// Shows the opened book when the text at its position and the images
+    /// there are ready.
+    fn show_when_ready(&mut self, cx: &mut Context<Self>) {
+        if self.loading()
+            && self.pending.is_none()
+            && !self.items.is_empty()
+            && self.waiting.is_empty()
+        {
+            self.status = Status::Ready;
+            if let Some(id) = self.book_id.clone() {
+                cx.update_global(|store: &mut Store, _| {
+                    store.library.mark_opened(&id, Utc::now());
+                    store.save();
+                });
+            }
+            cx.notify();
+        }
     }
 
     fn loaded(&mut self, cx: &mut Context<Self>) {
@@ -519,8 +577,7 @@ impl Reader {
         if self.items.is_empty() {
             self.fail("The book has no text.".into(), cx);
         } else {
-            self.status = Status::Ready;
-            cx.notify();
+            self.show_when_ready(cx);
         }
     }
 
@@ -941,20 +998,36 @@ impl Reader {
         picture.decode = Decode::Running;
         let bytes = picture.bytes.clone();
         let href = href.to_string();
+        let tones = self.tones;
         cx.spawn(async move |this, cx| {
             let image = cx
-                .background_spawn(async move { decode_image(&bytes) })
+                .background_spawn(async move { decode_image(&bytes, tones) })
                 .await;
-            this.update(cx, |reader, cx| reader.decoded(href, image, cx))
+            this.update(cx, |reader, cx| reader.decoded(href, image, tones, cx))
                 .ok();
         })
         .detach();
     }
 
-    fn decoded(&mut self, href: String, image: Option<Arc<RenderImage>>, cx: &mut Context<Self>) {
+    fn decoded(
+        &mut self,
+        href: String,
+        image: Option<Arc<RenderImage>>,
+        tones: Option<Tones>,
+        cx: &mut Context<Self>,
+    ) {
+        self.waiting.retain(|waiting| *waiting != href);
+        self.show_when_ready(cx);
         let Some(picture) = self.pictures.get_mut(&href) else {
             return;
         };
+        if tones != self.tones {
+            // The tones changed during the decode.
+            picture.decode = Decode::No;
+            self.dropped.extend(image);
+            cx.notify();
+            return;
+        }
         let Some(image) = image else {
             picture.decode = Decode::Failed;
             return;
@@ -1190,25 +1263,46 @@ fn load_chapter(book: &Book, index: usize) -> Loaded {
     Loaded { chapter, pictures }
 }
 
-fn decode_image(bytes: &[u8]) -> Option<Arc<RenderImage>> {
-    let mut image = image::load_from_memory(bytes).ok()?;
+type Tones = ([u8; 3], [u8; 3]);
+
+fn image_tones(cx: &App) -> Option<Tones> {
+    let dither = cx.global::<Store>().library.settings.dither_images;
+    dither.then(|| style::tones(cx))
+}
+
+fn decode_image(bytes: &[u8], tones: Option<Tones>) -> Option<Arc<RenderImage>> {
+    let image = image::load_from_memory(bytes).ok()?;
     let (width, height) = (image.width(), image.height());
-    if width.max(height) > IMAGE_MAX {
-        let scale = IMAGE_MAX as f32 / width.max(height) as f32;
-        let size = |side: u32| ((side as f32 * scale).round() as u32).max(1);
-        let mut small = DynamicImage::new(size(width), size(height), image.color());
-        image = match Resizer::new().resize(&image, &mut small, None) {
-            Ok(()) => small,
-            // A pixel format that the resizer does not know.
-            Err(_) => image.thumbnail(IMAGE_MAX, IMAGE_MAX),
-        };
-    }
-    let mut pixels = image.into_rgba8();
+    let mut pixels = match tones {
+        Some((dark, light)) => {
+            let scale = (COLUMN_WIDTH / width as f32).min(1.) / DITHER_DOT;
+            let dots = shrink(image, scale).into_rgba8();
+            dither_small(&dots, style::DITHER_CELL, dark, light)
+        }
+        None => {
+            let scale = (IMAGE_MAX as f32 / width.max(height) as f32).min(1.);
+            shrink(image, scale).into_rgba8()
+        }
+    };
     // RenderImage is BGRA.
     for pixel in pixels.pixels_mut() {
         pixel.0.swap(0, 2);
     }
     Some(Arc::new(RenderImage::new(vec![Frame::new(pixels)])))
+}
+
+fn shrink(image: DynamicImage, scale: f32) -> DynamicImage {
+    if scale >= 1. {
+        return image;
+    }
+    let size = |side: u32| ((side as f32 * scale).round() as u32).max(1);
+    let (width, height) = (size(image.width()), size(image.height()));
+    let mut small = DynamicImage::new(width, height, image.color());
+    match Resizer::new().resize(&image, &mut small, None) {
+        Ok(()) => small,
+        // A pixel format that the resizer does not know.
+        Err(_) => image.thumbnail_exact(width, height),
+    }
 }
 
 impl Reader {
@@ -1421,15 +1515,7 @@ impl Reader {
             .border_r_1()
             .border_color(theme.border)
             .occlude()
-            .child(
-                div()
-                    .absolute()
-                    .top_0()
-                    .bottom_0()
-                    .right(px(-6.))
-                    .w(px(1.))
-                    .bg(theme.success),
-            )
+            .child(style::side_shadow(true, cx))
             .child(
                 div()
                     .flex()
@@ -1447,6 +1533,16 @@ impl Reader {
 
 impl Render for Reader {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let tones = image_tones(cx);
+        if tones != self.tones {
+            self.tones = tones;
+            self.decoded.clear();
+            for picture in self.pictures.values_mut() {
+                if let Decode::Done(image) = mem::replace(&mut picture.decode, Decode::No) {
+                    self.dropped.push(image);
+                }
+            }
+        }
         for image in self.dropped.drain(..) {
             window.drop_image(image).ok();
         }

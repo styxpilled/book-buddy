@@ -2,6 +2,7 @@
 
 mod image_cache;
 mod library_view;
+mod menu;
 mod reader;
 mod scan;
 mod settings;

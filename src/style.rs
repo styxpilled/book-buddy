@@ -6,7 +6,8 @@ use std::rc::Rc;
 
 use gpui::{
     App, Bounds, Div, ElementId, Hsla, InteractiveElement, IntoElement, ParentElement, PathBuilder,
-    SharedString, Stateful, Styled, canvas, div, fill, point, px, relative, size,
+    SharedString, Stateful, Styled, canvas, div, fill, point, prelude::FluentBuilder, px, relative,
+    size,
 };
 use gpui_kit::component::{ActiveTheme, Theme, ThemeSet};
 
@@ -206,6 +207,29 @@ pub fn cross(color: Hsla) -> impl IntoElement {
     .top_0()
     .left_0()
     .size_full()
+}
+
+/// How far the box behind a panel or menu shows, as its shadow.
+pub const SHADOW: f32 = 4.;
+
+/// The part of the shadow box that shows at the side of a panel that is as
+/// tall as its parent. On the right side of the panel, or else the left.
+pub fn side_shadow(right: bool, cx: &App) -> Div {
+    let theme = cx.theme();
+    div()
+        .absolute()
+        .top_0()
+        .bottom_0()
+        .w(px(SHADOW))
+        .bg(theme.background)
+        .border_color(theme.border)
+        .map(|strip| {
+            if right {
+                strip.right(px(-SHADOW)).border_r_1()
+            } else {
+                strip.left(px(-SHADOW)).border_l_1()
+            }
+        })
 }
 
 /// Corner marks just outside a box, like the crop marks of a print.

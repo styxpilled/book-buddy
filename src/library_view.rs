@@ -1,6 +1,6 @@
 use std::cmp::Reverse;
 use std::os::windows::process::CommandExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -9,17 +9,17 @@ use book_buddy::dither::dither;
 use book_buddy::library::BookEntry;
 use gpui::{
     App, AppContext, Context, Div, Entity, EventEmitter, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, ObjectFit, ParentElement, Render, SharedString,
-    StatefulInteractiveElement, Styled, StyledImage, Subscription, WeakEntity, Window, div,
-    image_cache, img, prelude::*, px, relative, uniform_list,
+    InteractiveElement, IntoElement, MouseButton, ObjectFit, ParentElement, Pixels, Point, Render,
+    SharedString, StatefulInteractiveElement, Styled, StyledImage, Subscription, WeakEntity,
+    Window, div, image_cache, img, prelude::*, px, relative, uniform_list,
 };
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
-use gpui_kit::component::menu::{ContextMenuExt, DropdownMenu, PopupMenuItem};
 use gpui_kit::component::{ActiveTheme, Sizable};
 
 use crate::Import;
 use crate::image_cache::{BoundedImageCache, Filter};
+use crate::menu::{self, Dismiss, Menu, MenuItem};
 use crate::scan::{COVER_HEIGHT, COVER_WIDTH};
 use crate::settings::OpenSettings;
 use crate::store::{Store, cover_path};
@@ -78,7 +78,15 @@ pub struct LibraryView {
     covers: Entity<BoundedImageCache>,
     /// The tones the covers are dithered to. They follow the theme.
     tones: ([u8; 3], [u8; 3]),
+    menu: Option<OpenMenu>,
     _subscriptions: Vec<Subscription>,
+}
+
+struct OpenMenu {
+    menu: Entity<Menu>,
+    /// At the pointer, or under the sort button.
+    at: Option<Point<Pixels>>,
+    _dismiss: Subscription,
 }
 
 impl EventEmitter<LibraryEvent> for LibraryView {}
@@ -106,8 +114,57 @@ impl LibraryView {
             sort: Sort::LastOpened,
             covers: cover_cache(tones, cx),
             tones,
+            menu: None,
             _subscriptions: subscriptions,
         }
+    }
+
+    fn open_menu(
+        &mut self,
+        at: Option<Point<Pixels>>,
+        items: Vec<MenuItem>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let menu = cx.new(|cx| Menu::new(items, window, cx));
+        let dismiss = cx.subscribe_in(&menu, window, |this, _, _: &Dismiss, window, cx| {
+            this.menu = None;
+            this.filter.focus_handle(cx).focus(window, cx);
+            cx.notify();
+        });
+        self.menu = Some(OpenMenu {
+            menu,
+            at,
+            _dismiss: dismiss,
+        });
+        cx.notify();
+    }
+
+    /// The open menu, if it is the sort menu or not as `sort` says.
+    fn render_menu(&self, sort: bool, window: &Window) -> Option<impl IntoElement> {
+        let open = self
+            .menu
+            .as_ref()
+            .filter(|open| open.at.is_none() == sort)?;
+        Some(menu::popup(&open.menu, open.at, window))
+    }
+
+    fn sort_items(&self, cx: &mut Context<Self>) -> Vec<MenuItem> {
+        let view = cx.entity().downgrade();
+        Sort::ALL
+            .into_iter()
+            .map(|option| {
+                let view = view.clone();
+                MenuItem::new(option.label(), move |_, cx| {
+                    view.update(cx, |this, cx| {
+                        this.sort = option;
+                        cx.notify();
+                    })
+                    .ok();
+                })
+                .checked(option == self.sort)
+            })
+            .collect()
     }
 
     fn visible_books(&self, cx: &App) -> Vec<BookEntry> {
@@ -129,9 +186,12 @@ impl LibraryView {
         books
     }
 
-    fn render_header(&self, count: usize, cx: &mut Context<Self>) -> impl IntoElement {
-        let view = cx.entity().downgrade();
-        let sort = self.sort;
+    fn render_header(
+        &self,
+        count: usize,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         div()
             .flex()
             .items_center()
@@ -155,27 +215,23 @@ impl LibraryView {
                     ),
             )
             .child(
-                Button::new("sort")
-                    .label(sort.label())
-                    .ghost()
-                    .small()
-                    .dropdown_menu(move |mut menu, _, _| {
-                        for option in Sort::ALL {
-                            let view = view.clone();
-                            menu = menu.item(
-                                PopupMenuItem::new(option.label())
-                                    .checked(option == sort)
-                                    .on_click(move |_, _, cx| {
-                                        view.update(cx, |this, cx| {
-                                            this.sort = option;
-                                            cx.notify();
-                                        })
-                                        .ok();
-                                    }),
-                            );
-                        }
-                        menu
-                    }),
+                div()
+                    .relative()
+                    .child(
+                        Button::new("sort")
+                            .label(self.sort.label())
+                            .ghost()
+                            .small()
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                let items = this.sort_items(cx);
+                                this.open_menu(None, items, window, cx);
+                            })),
+                    )
+                    .children(
+                        self.render_menu(true, window).map(|menu| {
+                            div().absolute().top_full().left_0().mt(px(4.)).child(menu)
+                        }),
+                    ),
             )
             .child(style::rule(cx))
             .child(style::dot(format!("{count:02}"), 26.))
@@ -256,8 +312,9 @@ impl Render for LibraryView {
             .bg(theme.background)
             .text_color(theme.foreground)
             .child(style::grid(cx))
-            .child(self.render_header(count, cx))
+            .child(self.render_header(count, window, cx))
             .child(body)
+            .children(self.render_menu(false, window))
     }
 }
 
@@ -374,42 +431,12 @@ fn card(book: &BookEntry, view: WeakEntity<LibraryView>, cx: &App) -> impl IntoE
                 }
             }
         })
-        .context_menu(move |menu, _, _| {
-            let hide_id = id.clone();
-            let remove_id = id.clone();
-            let shown = path.clone();
-            menu.item(
-                PopupMenuItem::new(if hidden { "UNHIDE" } else { "HIDE" }).on_click(
-                    move |_, _, cx| {
-                        cx.update_global(|store: &mut Store, _| {
-                            if let Some(book) = store.library.book_mut(&hide_id) {
-                                book.hidden = !hidden;
-                                store.save();
-                            }
-                        });
-                    },
-                ),
-            )
-            .item(
-                PopupMenuItem::new("REMOVE FROM LIBRARY").on_click(move |_, _, cx| {
-                    cx.update_global(|store: &mut Store, _| {
-                        if let Some(removed) = store.library.remove(&remove_id) {
-                            std::fs::remove_file(cover_path(store.covers(), &removed.id)).ok();
-                        }
-                        store.save();
-                    });
-                }),
-            )
-            .item(
-                PopupMenuItem::new("SHOW IN EXPLORER")
-                    .disabled(missing)
-                    .on_click(move |_, _, _| {
-                        let select = format!("/select,\"{}\"", shown.display());
-                        if let Err(e) = Command::new("explorer").raw_arg(select).spawn() {
-                            log::error!("cannot start Explorer: {e}");
-                        }
-                    }),
-            )
+        .on_mouse_down(MouseButton::Right, move |event, window, cx| {
+            let items = book_items(&id, &path, hidden, missing);
+            view.update(cx, |this, cx| {
+                this.open_menu(Some(event.position), items, window, cx)
+            })
+            .ok();
         });
 
     // A fixed height keeps the rows even. Only the card in it is clickable.
@@ -418,6 +445,35 @@ fn card(book: &BookEntry, view: WeakEntity<LibraryView>, cx: &App) -> impl IntoE
         .w(px(COVER_WIDTH as f32))
         .h(px(COVER_HEIGHT as f32 + CARD_TEXT_HEIGHT))
         .child(card)
+}
+
+fn book_items(id: &str, path: &Path, hidden: bool, missing: bool) -> Vec<MenuItem> {
+    let (hide_id, remove_id, shown) = (id.to_string(), id.to_string(), path.to_path_buf());
+    vec![
+        MenuItem::new(if hidden { "UNHIDE" } else { "HIDE" }, move |_, cx| {
+            cx.update_global(|store: &mut Store, _| {
+                if let Some(book) = store.library.book_mut(&hide_id) {
+                    book.hidden = !hidden;
+                    store.save();
+                }
+            });
+        }),
+        MenuItem::new("REMOVE FROM LIBRARY", move |_, cx| {
+            cx.update_global(|store: &mut Store, _| {
+                if let Some(removed) = store.library.remove(&remove_id) {
+                    std::fs::remove_file(cover_path(store.covers(), &removed.id)).ok();
+                }
+                store.save();
+            });
+        }),
+        MenuItem::new("SHOW IN EXPLORER", move |_, _| {
+            let select = format!("/select,\"{}\"", shown.display());
+            if let Err(e) = Command::new("explorer").raw_arg(select).spawn() {
+                log::error!("cannot start Explorer: {e}");
+            }
+        })
+        .disabled(missing),
+    ]
 }
 
 /// Shown only while the pointer is on the card.

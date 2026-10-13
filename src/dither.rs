@@ -35,7 +35,13 @@ pub fn dither(image: &RgbaImage, cell: u32, dark: [u8; 3], light: [u8; 3]) -> Rg
         (image.height() / cell).max(1),
     );
     let small = imageops::resize(image, width, height, FilterType::Triangle);
-    let mut out = RgbaImage::new(width * cell, height * cell);
+    dither_small(&small, cell, dark, light)
+}
+
+/// The same, for an image that has one pixel for each dot.
+pub fn dither_small(small: &RgbaImage, cell: u32, dark: [u8; 3], light: [u8; 3]) -> RgbaImage {
+    let cell = cell.max(1);
+    let mut out = RgbaImage::new(small.width() * cell, small.height() * cell);
     for (x, y, pixel) in small.enumerate_pixels() {
         let [r, g, b, a] = pixel.0.map(|c| c as f32 / 255.);
         let luma = (0.2126 * r + 0.7152 * g + 0.0722 * b) * a + (1. - a);
