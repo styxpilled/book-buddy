@@ -13,6 +13,7 @@ use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
 use image::{Frame, RgbaImage};
 
 use crate::Back;
+use crate::backdrop::backdrop;
 use crate::store::{Store, cover_path};
 use crate::style;
 
@@ -220,6 +221,7 @@ fn signed(value: i32) -> String {
 impl Render for CoverAdjust {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let preview = self.update_preview(window, cx);
+        let backdrop = backdrop(window, cx);
         let shown = if self.comparing {
             self.original.clone()
         } else {
@@ -321,7 +323,7 @@ impl Render for CoverAdjust {
             .flex_col()
             .bg(theme.background)
             .text_color(theme.foreground)
-            .child(style::grid(cx))
+            .child(backdrop)
             .child(
                 div()
                     .flex()

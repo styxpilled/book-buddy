@@ -5,15 +5,13 @@ use std::borrow::Cow;
 use std::rc::Rc;
 
 use gpui::{
-    App, Bounds, Div, ElementId, Hsla, InteractiveElement, IntoElement, ParentElement, PathBuilder,
-    SharedString, Stateful, Styled, canvas, div, fill, point, prelude::FluentBuilder, px, relative,
-    size,
+    App, Div, ElementId, Hsla, InteractiveElement, IntoElement, ParentElement, PathBuilder,
+    SharedString, Stateful, Styled, canvas, div, prelude::FluentBuilder, px, relative,
 };
 use gpui_kit::component::{ActiveTheme, Theme, ThemeSet};
 
 /// The dot-matrix font for numbers.
 pub const DOT: &str = "DotGothic16";
-const GRID: f32 = 12.;
 /// Pixels of a cover thumbnail in one dot of the dithering.
 pub const DITHER_CELL: u32 = 4;
 
@@ -52,12 +50,12 @@ pub fn tones(cx: &App) -> ([u8; 3], [u8; 3]) {
     }
 }
 
-fn rgb(color: Hsla) -> [u8; 3] {
+pub fn rgb(color: Hsla) -> [u8; 3] {
     let color = color.to_rgb();
     [color.r, color.g, color.b].map(|c| (c * 255.).round() as u8)
 }
 
-/// Lines between the lines of the grid, and other quiet parts.
+/// Quiet lines and marks.
 pub fn faint(cx: &App) -> Hsla {
     cx.theme().muted_foreground.opacity(0.55)
 }
@@ -156,32 +154,6 @@ pub fn progress(percent: f32, cx: &App) -> Div {
         .flex()
         .gap(px(2.))
         .children((0..10).map(|i| div().size(px(3.)).bg(if i < filled { on } else { off })))
-}
-
-/// The faint grid of the screen, behind the content of its parent.
-pub fn grid(cx: &App) -> impl IntoElement {
-    let color = cx.theme().foreground.opacity(0.07);
-    canvas(
-        |_, _, _| (),
-        move |bounds, _, window, _| {
-            let mut x = bounds.left();
-            while x < bounds.right() {
-                let line = Bounds::new(point(x, bounds.top()), size(px(1.), bounds.size.height));
-                window.paint_quad(fill(line, color));
-                x += px(GRID);
-            }
-            let mut y = bounds.top();
-            while y < bounds.bottom() {
-                let line = Bounds::new(point(bounds.left(), y), size(bounds.size.width, px(1.)));
-                window.paint_quad(fill(line, color));
-                y += px(GRID);
-            }
-        },
-    )
-    .absolute()
-    .top_0()
-    .left_0()
-    .size_full()
 }
 
 /// Two diagonals across the parent.

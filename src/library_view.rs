@@ -19,6 +19,7 @@ use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::{ActiveTheme, Sizable};
 
 use crate::Import;
+use crate::backdrop::backdrop;
 use crate::image_cache::{BoundedImageCache, Filter};
 use crate::menu::{self, Dismiss, Menu, MenuItem};
 use crate::scan::{COVER_HEIGHT, COVER_WIDTH};
@@ -53,6 +54,15 @@ enum Sort {
     Added,
 }
 
+/// The title in lower case, without a leading article.
+fn title_key(title: &str) -> String {
+    let title = title.trim_start().to_lowercase();
+    ["the ", "an ", "a "]
+        .iter()
+        .find_map(|article| title.strip_prefix(article))
+        .map_or(title.clone(), |rest| rest.trim_start().to_string())
+}
+
 impl Sort {
     const ALL: [Sort; 4] = [Sort::LastOpened, Sort::Title, Sort::Author, Sort::Added];
 
@@ -68,13 +78,10 @@ impl Sort {
     fn apply(self, books: &mut [BookEntry]) {
         match self {
             Sort::LastOpened => books.sort_by_key(|b| Reverse((b.last_opened, b.added))),
-            Sort::Title => books.sort_by_key(|b| b.shown_title().to_lowercase()),
-            Sort::Author => books.sort_by_key(|b| {
-                (
-                    b.shown_author().to_lowercase(),
-                    b.shown_title().to_lowercase(),
-                )
-            }),
+            Sort::Title => books.sort_by_key(|b| title_key(b.shown_title())),
+            Sort::Author => {
+                books.sort_by_key(|b| (b.shown_author().to_lowercase(), title_key(b.shown_title())))
+            }
             Sort::Added => books.sort_by_key(|b| Reverse(b.added)),
         }
     }
@@ -357,7 +364,7 @@ impl Render for LibraryView {
             .flex_col()
             .bg(theme.background)
             .text_color(theme.foreground)
-            .child(style::grid(cx))
+            .child(backdrop(window, cx))
             .child(self.render_header(count, window, cx))
             .child(body)
             .children(self.render_menu(false, window))
@@ -552,4 +559,24 @@ fn on_hover(element: Div) -> Div {
     element
         .opacity(0.)
         .group_hover(CARD, |style| style.opacity(1.))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn title_key_skips_the() {
+        assert_eq!(
+            title_key("The Picture of Dorian Gray"),
+            "picture of dorian gray"
+        );
+        assert_eq!(title_key("  THE  Hound"), "hound");
+        assert_eq!(title_key("Theatre"), "theatre");
+        assert_eq!(title_key("The"), "the");
+        assert_eq!(title_key("A Tale of Two Cities"), "tale of two cities");
+        assert_eq!(title_key("An Ideal Husband"), "ideal husband");
+        assert_eq!(title_key("Anna Karenina"), "anna karenina");
+        assert_eq!(title_key("A"), "a");
+    }
 }
