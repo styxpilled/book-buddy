@@ -1,14 +1,14 @@
 use book_buddy::library::{FONT_SIZES, Font, Mode, Settings, Theme};
 use gpui::{
-    App, BorrowAppContext, Context, Div, EventEmitter, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, KeyBinding, ParentElement, PathPromptOptions, Render, SharedString, Stateful,
-    StatefulInteractiveElement, Styled, Subscription, Window, actions, div, prelude::FluentBuilder,
-    px,
+    App, AppContext, BorrowAppContext, Context, Div, Entity, EventEmitter, FocusHandle, Focusable,
+    InteractiveElement, IntoElement, KeyBinding, ParentElement, PathPromptOptions, Render,
+    SharedString, Stateful, StatefulInteractiveElement, Styled, Subscription, Window, actions, div,
+    prelude::FluentBuilder, px,
 };
 use gpui_kit::component::{ActiveTheme, ThemeMode};
 
 use crate::Back;
-use crate::menu;
+use crate::menu::{self, Dismiss, Menu, MenuItem};
 use crate::scan;
 use crate::store::Store;
 use crate::style;
@@ -63,6 +63,7 @@ fn apply_theme(cx: &mut App) {
 
 pub struct SettingsPanel {
     focus: FocusHandle,
+    font_menu: Option<(Entity<Menu>, Subscription)>,
     _subscription: Subscription,
 }
 
@@ -80,12 +81,32 @@ impl SettingsPanel {
     pub fn new(cx: &mut Context<Self>) -> Self {
         Self {
             focus: cx.focus_handle(),
+            font_menu: None,
             _subscription: cx.observe_global::<Store>(|_, cx| cx.notify()),
         }
     }
 
     fn close(&mut self, _: &Back, _: &mut Window, cx: &mut Context<Self>) {
         cx.emit(CloseSettings);
+    }
+
+    fn open_font_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let current = cx.global::<Store>().library.settings.font;
+        let items = Font::ALL
+            .into_iter()
+            .map(|font| {
+                MenuItem::new(font_label(font), move |_, cx| change(cx, |s| s.font = font))
+                    .checked(font == current)
+            })
+            .collect();
+        let menu = cx.new(|cx| Menu::new(items, window, cx));
+        let dismiss = cx.subscribe_in(&menu, window, |panel, _, _: &Dismiss, window, cx| {
+            panel.font_menu = None;
+            panel.focus.focus(window, cx);
+            cx.notify();
+        });
+        self.font_menu = Some((menu, dismiss));
+        cx.notify();
     }
 
     fn add_folder(&mut self, cx: &mut Context<Self>) {
@@ -111,6 +132,18 @@ impl SettingsPanel {
             }
         })
         .detach();
+    }
+}
+
+fn font_label(font: Font) -> &'static str {
+    match font {
+        Font::Serif => "LITERATA",
+        Font::Sans => "INTER",
+        Font::Newsreader => "NEWSREADER",
+        Font::SourceSerif => "SOURCE SERIF",
+        Font::Alegreya => "ALEGREYA",
+        Font::Garamond => "EB GARAMOND",
+        Font::Mono => "PLEX MONO",
     }
 }
 
@@ -158,7 +191,7 @@ fn row(label: &'static str, control: impl IntoElement, cx: &App) -> impl IntoEle
 }
 
 impl Render for SettingsPanel {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let library = &cx.global::<Store>().library;
         let settings = library.settings.clone();
@@ -184,6 +217,26 @@ impl Render for SettingsPanel {
                 |cx| change(cx, |s| s.font_size += 1),
             ))
             .child(style::label("CTRL+= / CTRL+-", cx));
+
+        let font = div()
+            .relative()
+            .child(
+                style::button(
+                    "font",
+                    format!("{} ▾", font_label(settings.font)),
+                    false,
+                    cx,
+                )
+                .on_click(cx.listener(|panel, _, window, cx| panel.open_font_menu(window, cx))),
+            )
+            .children(self.font_menu.as_ref().map(|(menu, _)| {
+                div()
+                    .absolute()
+                    .top_full()
+                    .left_0()
+                    .mt(px(4.))
+                    .child(menu::popup(menu, None, window))
+            }));
 
         let hairline = style::hairline(cx);
         let folder_rows = folders.into_iter().enumerate().map(|(ix, folder)| {
@@ -261,17 +314,7 @@ impl Render for SettingsPanel {
                 ),
                 cx,
             ))
-            .child(row(
-                "FONT =",
-                choice(
-                    "font",
-                    settings.font,
-                    &[(Font::Serif, "SERIF", true), (Font::Sans, "SANS", true)],
-                    |s, v| s.font = v,
-                    cx,
-                ),
-                cx,
-            ))
+            .child(row("FONT =", font, cx))
             .child(row("FONT SIZE =", size, cx))
             .child(row(
                 "MODE =",

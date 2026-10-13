@@ -9,7 +9,7 @@ The app uses the MONOCHROME design from issue 13 (`mockups/monochrome.html`). Th
 ## Rules
 
 - Keep the look of the first pass: square shapes, 1 px ink lines, IBM Plex Mono for the UI, DotGothic16 for numbers, two-tone dithering.
-- Book text stays Literata or Inter.
+- Book text uses a reading font from the FONT setting: Literata (default), Newsreader, Source Serif 4, Alegreya, EB Garamond, Inter or IBM Plex Mono.
 - New settings go in `library.json` with a default, like the settings of v1.
 - Minimal text in the UI.
 

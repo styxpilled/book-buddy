@@ -124,8 +124,27 @@ pub enum Mode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Font {
+    /// Literata. The name is from the time of two fonts.
     Serif,
+    /// Inter.
     Sans,
+    Newsreader,
+    SourceSerif,
+    Alegreya,
+    Garamond,
+    Mono,
+}
+
+impl Font {
+    pub const ALL: [Font; 7] = [
+        Font::Serif,
+        Font::Newsreader,
+        Font::SourceSerif,
+        Font::Alegreya,
+        Font::Garamond,
+        Font::Sans,
+        Font::Mono,
+    ];
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

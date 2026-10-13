@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use book_buddy::book::{Block, BlockKind, Book, Chapter, Marker, Run};
+use book_buddy::book::{Block, BlockKind, Book, Chapter, Layout, Marker, Run};
 use book_buddy::dither::{self, dither_small};
 use book_buddy::library::{FileInfo, Font, Mode, Position};
 use chrono::Utc;
@@ -45,6 +45,11 @@ const HEADING_SPACING: f32 = 1.25;
 const PRE_SCALE: f32 = 0.85;
 /// Space below a block quote, in font sizes.
 const QUOTE_GAP: f32 = 0.75;
+/// Space for one empty element of the book, in font sizes.
+const GAP: f32 = 1.;
+const MAX_GAP: u8 = 4;
+/// Indent of a verse inset, in font sizes.
+const INSET: f32 = 2.;
 const HEADING_SCALE: [f32; 6] = [1.8, 1.5, 1.3, 1.15, 1.0, 1.0];
 const COLUMN_WIDTH: f32 = 720.;
 const MARGIN: f32 = 32.;
@@ -117,18 +122,33 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("shift-f3", PreviousMatch, Some("Search")),
     ]);
 
-    let fonts: [&'static [u8]; 8] = [
-        include_bytes!("../assets/fonts/Literata-Regular.ttf"),
-        include_bytes!("../assets/fonts/Literata-Bold.ttf"),
-        include_bytes!("../assets/fonts/Literata-Italic.ttf"),
-        include_bytes!("../assets/fonts/Literata-BoldItalic.ttf"),
-        include_bytes!("../assets/fonts/Inter-Regular.ttf"),
-        include_bytes!("../assets/fonts/Inter-Bold.ttf"),
-        include_bytes!("../assets/fonts/Inter-Italic.ttf"),
-        include_bytes!("../assets/fonts/Inter-BoldItalic.ttf"),
-    ];
+    macro_rules! styles {
+        ($($name:literal),*) => {
+            [$(
+                include_bytes!(concat!("../assets/fonts/", $name, "-Regular.ttf")) as &'static [u8],
+                include_bytes!(concat!("../assets/fonts/", $name, "-Bold.ttf")),
+                include_bytes!(concat!("../assets/fonts/", $name, "-Italic.ttf")),
+                include_bytes!(concat!("../assets/fonts/", $name, "-BoldItalic.ttf")),
+            )*]
+        };
+    }
+    // `style::init` adds IBM Plex Mono Regular for the UI.
+    let fonts = styles!(
+        "Literata",
+        "Inter",
+        "Newsreader",
+        "SourceSerif4",
+        "Alegreya",
+        "EBGaramond"
+    )
+    .into_iter()
+    .chain([
+        include_bytes!("../assets/fonts/IBMPlexMono-Bold.ttf") as &'static [u8],
+        include_bytes!("../assets/fonts/IBMPlexMono-Italic.ttf"),
+        include_bytes!("../assets/fonts/IBMPlexMono-BoldItalic.ttf"),
+    ]);
     cx.text_system()
-        .add_fonts(fonts.into_iter().map(Cow::Borrowed).collect())
+        .add_fonts(fonts.map(Cow::Borrowed).collect())
         .expect("bundled fonts must load");
 }
 
@@ -147,10 +167,11 @@ struct Item {
     text: SharedString,
     styles: Vec<(Range<usize>, Run)>,
     chapter_start: bool,
+    layout: Layout,
 }
 
 impl Item {
-    fn new(block: Block, spine: usize, chapter_start: bool) -> Self {
+    fn new(block: Block, spine: usize, chapter_start: bool, layout: Layout) -> Self {
         let text = block.text();
         let mut styles = Vec::new();
         if let BlockKind::Heading { runs, .. }
@@ -174,6 +195,7 @@ impl Item {
             text: text.into(),
             styles,
             chapter_start,
+            layout,
         }
     }
 
@@ -509,9 +531,10 @@ impl Reader {
             len: loaded.chapter.len,
             anchors: loaded.chapter.anchors,
         });
+        let layout = loaded.chapter.layout;
         let blocks = loaded.chapter.blocks.into_iter().enumerate();
         self.items
-            .extend(blocks.map(|(i, block)| Item::new(block, spine, i == 0)));
+            .extend(blocks.map(|(i, block)| Item::new(block, spine, i == 0, layout)));
         for (href, picture) in loaded.pictures {
             self.pictures.entry(href).or_insert(picture);
         }
@@ -1058,10 +1081,16 @@ impl Reader {
 
     fn spacing(&self, ix: usize) -> Spacing {
         let size = self.font_size;
-        let (top, bottom, line) = match &self.items[ix].block.kind {
+        let item = &self.items[ix];
+        let gap = size * GAP * item.block.gap.min(MAX_GAP) as f32;
+        let paragraph_bottom = match item.layout {
+            Layout::Verse => 0.,
+            _ => size * 0.75,
+        };
+        let (top, bottom, line) = match &item.block.kind {
             // A heading does not break across pages.
-            BlockKind::Heading { .. } => (size * 0.8, size * 0.6, None),
-            BlockKind::Paragraph { .. } => (0., size * 0.75, Some(size * LINE_SPACING)),
+            BlockKind::Heading { .. } => (size * 0.8 + gap, size * 0.6, None),
+            BlockKind::Paragraph { .. } => (gap, paragraph_bottom, Some(size * LINE_SPACING)),
             BlockKind::ListItem { .. } => (0., size * 0.4, Some(size * LINE_SPACING)),
             BlockKind::Pre { .. } => (0., size * 0.75, Some(size * PRE_SCALE * LINE_SPACING)),
             BlockKind::Image { .. } | BlockKind::Error { .. } => (0., size * 0.75, None),
@@ -1130,9 +1159,14 @@ impl Reader {
                     .text_size(px(font_size * scale))
                     .line_height(relative(HEADING_SPACING))
                     .font_weight(FontWeight::BOLD)
+                    .when(item.layout == Layout::Title, |d| d.text_center())
                     .child(text())
             }
-            BlockKind::Paragraph { .. } => div().pb(px(spacing.bottom)).child(text()),
+            BlockKind::Paragraph { .. } => div()
+                .pt(px(spacing.top))
+                .pb(px(spacing.bottom))
+                .when(item.block.inset, |d| d.pl(px(font_size * INSET)))
+                .child(text()),
             BlockKind::ListItem { depth, marker, .. } => {
                 let marker = match marker {
                     Some(Marker::Bullet) => "•".to_string(),
@@ -1216,6 +1250,11 @@ impl Reader {
         match self.font {
             Font::Serif => SERIF,
             Font::Sans => SANS,
+            Font::Newsreader => "Newsreader 16pt",
+            Font::SourceSerif => "Source Serif 4",
+            Font::Alegreya => "Alegreya",
+            Font::Garamond => "EB Garamond",
+            Font::Mono => "IBM Plex Mono",
         }
     }
 }

@@ -13,12 +13,31 @@ pub struct Chapter {
     pub blocks: Vec<Block>,
     pub anchors: HashMap<String, usize>,
     pub len: usize,
+    pub layout: Layout,
+}
+
+/// The reader ignores book CSS. Some books lay out poems with empty elements
+/// for space and wrapping elements for indents, so the parser reads these.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub enum Layout {
+    #[default]
+    Prose,
+    /// Short lines with empty elements between them. A paragraph is one line
+    /// and `Block::gap` gives the space between stanzas.
+    Verse,
+    /// Headings only, for example a part title page.
+    Title,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Block {
     pub offset: usize,
     pub quote: u8,
+    /// Empty `div` elements before the block. Always 0 in a `Prose` chapter.
+    pub gap: u8,
+    /// A paragraph that is the only content of a `div` with a class. Always
+    /// false in a `Prose` chapter.
+    pub inset: bool,
     pub kind: BlockKind,
 }
 
@@ -83,10 +102,13 @@ impl Chapter {
             blocks: vec![Block {
                 offset: 0,
                 quote: 0,
+                gap: 0,
+                inset: false,
                 kind: BlockKind::Error { message },
             }],
             anchors: HashMap::new(),
             len: 1,
+            layout: Layout::Prose,
         }
     }
 }
@@ -239,6 +261,38 @@ fn normalize(href: &str) -> String {
     parts.join("/") + fragment
 }
 
+/// A verse line has at most this many chars.
+const VERSE_LINE: usize = 60;
+
+fn layout(blocks: &[Block]) -> Layout {
+    if !blocks.is_empty()
+        && blocks
+            .iter()
+            .all(|b| matches!(b.kind, BlockKind::Heading { .. }))
+    {
+        return Layout::Title;
+    }
+    let paragraphs: Vec<_> = blocks
+        .iter()
+        .filter(|b| matches!(b.kind, BlockKind::Paragraph { .. }))
+        .collect();
+    let short = paragraphs
+        .iter()
+        .filter(|b| b.text().chars().count() <= VERSE_LINE)
+        .count();
+    let spaced = paragraphs.iter().any(|b| b.gap > 0);
+    if paragraphs.len() >= 3 && short * 10 >= paragraphs.len() * 8 && spaced {
+        Layout::Verse
+    } else {
+        Layout::Prose
+    }
+}
+
+struct Div {
+    first_block: usize,
+    class: bool,
+}
+
 struct List {
     ordered: bool,
     next: u32,
@@ -262,6 +316,8 @@ struct Builder<'a> {
     item: u32,
     marker: Option<Marker>,
     pre: Option<String>,
+    divs: Vec<Div>,
+    gap: u8,
 }
 
 impl<'a> Builder<'a> {
@@ -284,6 +340,8 @@ impl<'a> Builder<'a> {
             item: 0,
             marker: None,
             pre: None,
+            divs: Vec::new(),
+            gap: 0,
         }
     }
 
@@ -342,6 +400,10 @@ impl<'a> Builder<'a> {
                     _ => Marker::Bullet,
                 });
             }
+            "div" => self.divs.push(Div {
+                first_block: self.blocks.len(),
+                class: attr(attrs, "class").is_some(),
+            }),
             "pre" => self.pre = Some(String::new()),
             "hr" => self.push(BlockKind::Rule, 0),
             "img" | "image" => {
@@ -401,6 +463,21 @@ impl<'a> Builder<'a> {
                 self.links.pop();
             }
             _ if BREAKS.contains(&name) => self.flush(),
+            _ => {}
+        }
+        if name == "div"
+            && let Some(div) = self.divs.pop()
+        {
+            self.end_div(div);
+        }
+    }
+
+    fn end_div(&mut self, div: Div) {
+        match &mut self.blocks[div.first_block..] {
+            [] => self.gap = self.gap.saturating_add(1),
+            [block] if div.class && matches!(block.kind, BlockKind::Paragraph { .. }) => {
+                block.inset = true;
+            }
             _ => {}
         }
     }
@@ -517,6 +594,8 @@ impl<'a> Builder<'a> {
         self.blocks.push(Block {
             offset: self.offset,
             quote: self.quote,
+            gap: mem::take(&mut self.gap),
+            inset: false,
             kind,
         });
         self.offset += len + 1;
@@ -527,10 +606,18 @@ impl<'a> Builder<'a> {
             self.end_pre();
         }
         self.flush();
+        let layout = layout(&self.blocks);
+        if layout == Layout::Prose {
+            for block in &mut self.blocks {
+                block.gap = 0;
+                block.inset = false;
+            }
+        }
         Chapter {
             blocks: self.blocks,
             anchors: self.anchors,
             len: self.offset,
+            layout,
         }
     }
 }
@@ -695,6 +782,49 @@ mod tests {
             runs(&ch.blocks[1]),
             [run("three © ", false, false), run("x", true, false)]
         );
+    }
+
+    #[test]
+    fn verse() {
+        let ch = chapter(
+            "<div class=\"section\"><div class=\"m\"/><h2>Poem</h2><div class=\"m\"/><div/>             <p><i>One</i></p><div/><p>a</p><p>b</p><div class=\"inset\"><p>c</p></div>             <div/><p>d</p></div><div/>",
+        );
+        assert_eq!(ch.layout, Layout::Verse);
+        let marks: Vec<_> = ch.blocks.iter().map(|b| (b.gap, b.inset)).collect();
+        assert_eq!(
+            marks,
+            [
+                (1, false),
+                (2, false),
+                (1, false),
+                (0, false),
+                (0, true),
+                (1, false)
+            ]
+        );
+    }
+
+    #[test]
+    fn prose_ignores_gaps_and_insets() {
+        let long = "word ".repeat(20);
+        let ch = chapter(&format!(
+            "<p>{long}</p><div/><p>{long}</p><div class=\"x\"><p>{long}</p></div><p>a</p>"
+        ));
+        assert_eq!(ch.layout, Layout::Prose);
+        assert!(ch.blocks.iter().all(|b| b.gap == 0 && !b.inset));
+    }
+
+    #[test]
+    fn short_lines_without_div_gaps_are_prose() {
+        let ch = chapter("<p>a</p><p></p><p>b</p><p>c</p>");
+        assert_eq!(ch.layout, Layout::Prose);
+    }
+
+    #[test]
+    fn title_page() {
+        let ch = chapter("<div/><div/><div class=\"s\"><h1>Part</h1></div>");
+        assert_eq!(ch.layout, Layout::Title);
+        assert_eq!(ch.blocks[0].gap, 2);
     }
 
     #[test]

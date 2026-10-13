@@ -1,6 +1,6 @@
 # 07: Poetry layout
 
-Status: needs-triage
+Status: done
 Spec: [../spec.md](../spec.md)
 Depends on: none
 
@@ -40,3 +40,15 @@ The spec says the reader ignores book CSS. A fix must stay inside that rule, or 
 - The indented last lines ("pill-bottle brown.", "Return to sender.") are indented.
 - Prose books in `books/` look the same as before.
 - Paginated mode keeps stanzas and indents.
+
+## Comments
+
+Done with the markup-only option. The reader still ignores book CSS.
+
+- An empty `div` is a gap of 1 em. Empty `p` elements do not count: Gutenberg books use them in contents pages.
+- A `div` with a class that holds only one paragraph is an inset of 2 em.
+- A chapter is verse if it has 3 or more paragraphs, 80% of them have 60 chars or fewer, and a paragraph has a gap before it. In a verse chapter, paragraphs have no space below them.
+- A chapter with only headings is a title page. The headings are centered and keep their gaps.
+- In other chapters, gaps and insets are ignored.
+- Of the books in `books/`, only `pg2554` changes: its "CRIME AND PUNISHMENT / PART I" page is now a centered title page.
+- Not done: the hanging indent of wrapped verse lines (`negative_indent_1`). GPUI text has no `text-indent`.
