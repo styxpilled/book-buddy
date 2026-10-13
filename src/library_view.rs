@@ -1,8 +1,6 @@
 use std::cmp::Reverse;
 use std::collections::HashMap;
-use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -512,8 +510,7 @@ fn book_items(
     let (hide_id, remove_id) = (id.to_string(), id.to_string());
     let (adjust_id, details_id) = (id.to_string(), id.to_string());
     let details_view = view.clone();
-    let shown = path.to_path_buf();
-    vec![
+    let mut items = vec![
         MenuItem::new(if hidden { "UNHIDE" } else { "HIDE" }, move |_, cx| {
             cx.update_global(|store: &mut Store, _| {
                 if let Some(book) = store.library.book_mut(&hide_id) {
@@ -544,14 +541,25 @@ fn book_items(
                 store.save();
             });
         }),
-        MenuItem::new("SHOW IN EXPLORER", move |_, _| {
-            let select = format!("/select,\"{}\"", shown.display());
-            if let Err(e) = Command::new("explorer").raw_arg(select).spawn() {
-                log::error!("cannot start Explorer: {e}");
-            }
-        })
-        .disabled(missing),
-    ]
+    ];
+    #[cfg(target_os = "windows")]
+    items.push(show_in_explorer(path).disabled(missing));
+    #[cfg(not(target_os = "windows"))]
+    let _ = (path, missing);
+    items
+}
+
+#[cfg(target_os = "windows")]
+fn show_in_explorer(path: &Path) -> MenuItem {
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
+
+    let select = format!("/select,\"{}\"", path.display());
+    MenuItem::new("SHOW IN EXPLORER", move |_, _| {
+        if let Err(e) = Command::new("explorer").raw_arg(&select).spawn() {
+            log::error!("cannot start Explorer: {e}");
+        }
+    })
 }
 
 /// Shown only while the pointer is on the card.

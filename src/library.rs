@@ -23,6 +23,22 @@ pub struct Library {
     pub last_book: Option<String>,
     #[serde(default)]
     pub books: Vec<BookEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<WindowState>,
+}
+
+/// The window when the app closed. The bounds are the windowed bounds, in
+/// logical pixels, also when the window is maximized or fullscreen.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct WindowState {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    #[serde(default)]
+    pub maximized: bool,
+    #[serde(default)]
+    pub fullscreen: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -172,6 +188,7 @@ impl Default for Library {
             settings: Settings::default(),
             last_book: None,
             books: Vec::new(),
+            window: None,
         }
     }
 }
@@ -185,8 +202,11 @@ impl Library {
             Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Self::default()),
             Err(e) => return Err(e).with_context(|| format!("cannot read {}", path.display())),
         };
-        match serde_json::from_str(&text) {
-            Ok(library) => Ok(library),
+        match serde_json::from_str::<Self>(&text) {
+            Ok(mut library) => {
+                library.merge_copies();
+                Ok(library)
+            }
             Err(e) => {
                 let bad = path.with_extension("json.bad");
                 log::error!(
@@ -212,6 +232,31 @@ impl Library {
         file.sync_all()?;
         drop(file);
         fs::rename(&temp, path).with_context(|| format!("cannot write {}", path.display()))
+    }
+
+    /// Older versions kept a copy of a book as a second entry with the same
+    /// ID. The entry opened last stays, with a file that exists, and the
+    /// earliest added time.
+    fn merge_copies(&mut self) {
+        let mut merged: Vec<BookEntry> = Vec::with_capacity(self.books.len());
+        for book in self.books.drain(..) {
+            let Some(kept) = merged.iter_mut().find(|b| b.id == book.id) else {
+                merged.push(book);
+                continue;
+            };
+            let added = kept.added.min(book.added);
+            let other = if book.last_opened > kept.last_opened {
+                std::mem::replace(kept, book)
+            } else {
+                book
+            };
+            if !kept.path.exists() && other.path.exists() {
+                (kept.path, kept.size, kept.modified) = (other.path, other.size, other.modified);
+                kept.missing = false;
+            }
+            kept.added = added;
+        }
+        self.books = merged;
     }
 
     pub fn book(&self, id: &str) -> Option<&BookEntry> {
@@ -244,21 +289,22 @@ impl Library {
         &mut self.books[index]
     }
 
-    /// Matches by path first. A file with a new path matches by ID only an
-    /// entry whose file is gone, so that two copies of a book stay two entries.
+    /// There is one entry for each book ID. A copy of a book at another path
+    /// is the same entry, which keeps its own file while that file exists. A
+    /// file with a new ID at a known path (an edited file) keeps its entry.
     fn upsert(&mut self, info: FileInfo, now: DateTime<Utc>) -> usize {
-        let found = self
-            .books
-            .iter()
-            .position(|b| same_path(&b.path, &info.path))
-            .or_else(|| {
-                self.books
-                    .iter()
-                    .position(|b| b.id == info.id && !b.path.exists())
-            });
+        let found = self.books.iter().position(|b| b.id == info.id).or_else(|| {
+            self.books
+                .iter()
+                .position(|b| same_path(&b.path, &info.path))
+        });
         match found {
             Some(index) => {
                 let entry = &mut self.books[index];
+                if entry.id == info.id && !same_path(&entry.path, &info.path) && entry.path.exists()
+                {
+                    return index;
+                }
                 if self.last_book.as_deref() == Some(entry.id.as_str()) {
                     self.last_book = Some(info.id.clone());
                 }
@@ -339,8 +385,14 @@ impl Library {
 }
 
 /// Windows paths are not case sensitive.
+#[cfg(target_os = "windows")]
 fn same_path(a: &Path, b: &Path) -> bool {
     a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
+}
+
+#[cfg(not(target_os = "windows"))]
+fn same_path(a: &Path, b: &Path) -> bool {
+    a == b
 }
 
 #[cfg(test)]
@@ -435,7 +487,9 @@ mod tests {
         );
     }
 
+    /// The paths differ only in case, which is the same path on Windows.
     #[test]
+    #[cfg(target_os = "windows")]
     fn open_matches_by_path_then_id() {
         let mut library = Library::default();
         let added = library.open(info("a", "C:\\Books\\a.epub"), time(200));
@@ -473,15 +527,53 @@ mod tests {
     }
 
     #[test]
-    fn a_copy_of_a_book_is_a_second_entry() {
+    fn a_copy_of_a_book_is_the_same_entry() {
         let dir = temp_dir("copy");
         let first = dir.join("first.epub");
         fs::write(&first, "x").unwrap();
         let mut library = Library::default();
         library.add(info("a", first.to_str().unwrap()), time(100));
-        library.add(info("a", "D:\\copy.epub"), time(200));
-        assert_eq!(library.books.len(), 2);
+        library.open(info("a", "D:\\copy.epub"), time(200));
+        assert_eq!(library.books.len(), 1);
         assert_eq!(library.books[0].path, first);
+        assert_eq!(library.last_book.as_deref(), Some("a"));
+        assert!(library.remove("a").is_some());
+        assert!(library.books.is_empty());
+    }
+
+    #[test]
+    fn copies_merge_on_load() {
+        let dir = temp_dir("merge");
+        let first = dir.join("first.epub");
+        fs::write(&first, "x").unwrap();
+        let mut library = Library::default();
+        library.add(info("a", first.to_str().unwrap()), time(100));
+        library.add(info("b", "D:\\b.epub"), time(150));
+        let mut copy = library.books[0].clone();
+        copy.path = PathBuf::from("D:\\gone\\copy.epub");
+        copy.added = time(200);
+        copy.last_opened = Some(time(300));
+        copy.position = Position {
+            spine: 2,
+            offset: 7,
+        };
+        library.books.push(copy);
+        let path = dir.join("library.json");
+        library.save(&path).unwrap();
+
+        let loaded = Library::load(&path).unwrap();
+        assert_eq!(loaded.books.len(), 2);
+        let book = loaded.book("a").unwrap();
+        assert_eq!(book.path, first);
+        assert_eq!(book.added, time(100));
+        assert_eq!(book.last_opened, Some(time(300)));
+        assert_eq!(
+            book.position,
+            Position {
+                spine: 2,
+                offset: 7
+            }
+        );
     }
 
     #[test]

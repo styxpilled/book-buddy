@@ -99,7 +99,7 @@ book-buddy-data/
 ### Missing files
 
 - If a stored path does not exist, set `missing: true`. Keep the entry and its position. Show the entry greyed out.
-- A scan matches a file to an entry by path first. It matches by book ID only when no entry has that path, and only an entry whose file is gone. So two copies of one book are two entries.
+- There is one entry for each book ID. A scan or an open matches a file to an entry by book ID first, then by path. A copy of a book at another path is the same entry. The entry keeps its path while that file exists. A library with two entries for one ID (from an older version) merges them on load: the entry opened last stays, with a file that exists.
 - If a scan finds a file with the book ID of a missing entry, update `path` and set `missing: false`.
 - If a tool changes the file contents (for example, metadata edits), the ID changes. At the same path, the entry keeps its position and gets the new ID. A file that is changed and moved is a new book.
 

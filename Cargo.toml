@@ -27,17 +27,27 @@ serde_json = "=1.0.154"
 # turns on `Window::render_to_image` in the Windows renderer.
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.1", optional = true }
 raw-window-handle = { version = "=0.6.2", optional = true }
-windows = { version = "=0.62.2", optional = true, features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_UI_WindowsAndMessaging"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "=0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Pipes",
+    "Win32_System_Registry",
+    "Win32_System_Threading",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
 
 [features]
+# Simulated input for the dev window. Windows only.
 sim = [
     "gpui/test-support",
     "dep:gpui_platform",
     "gpui_platform/test-support",
     "dep:raw-window-handle",
-    "dep:windows",
     "windows/Win32_Graphics_Gdi",
-    "windows/Win32_System_Pipes",
 ]
 
 # gpui-pre-macros 0.3.1 does not compile without debug assertions.

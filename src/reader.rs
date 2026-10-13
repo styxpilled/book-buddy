@@ -33,13 +33,17 @@ use crate::scan;
 use crate::settings::OpenSettings;
 use crate::store::Store;
 use crate::style;
+use crate::title_bar;
 use pages::Pages;
 use search::Search;
-use selection::Selection;
+use selection::{PaintedText, Selection};
 
 const SERIF: &str = "Literata";
 const SANS: &str = "Inter";
+#[cfg(target_os = "windows")]
 const MONO: &str = "Consolas";
+#[cfg(not(target_os = "windows"))]
+const MONO: &str = "IBM Plex Mono";
 const LINE_SPACING: f32 = 1.5;
 const HEADING_SPACING: f32 = 1.25;
 const PRE_SCALE: f32 = 0.85;
@@ -312,6 +316,7 @@ pub struct Reader {
     toc_open: bool,
     search: Search,
     selection: Option<Selection>,
+    painted: PaintedText,
     toc_scroll: UniformListScrollHandle,
     hide_bars: bool,
     /// With hidden bars, the bars that the pointer is near.
@@ -380,6 +385,7 @@ impl Reader {
             toc_open: false,
             search: Search::default(),
             selection: None,
+            painted: PaintedText::default(),
             toc_scroll: UniformListScrollHandle::new(),
             hide_bars,
             top_bar: false,
@@ -513,7 +519,7 @@ impl Reader {
         }
     }
 
-    fn line_height(&self) -> f32 {
+    pub(super) fn line_height(&self) -> f32 {
         self.font_size * LINE_SPACING
     }
 
@@ -940,11 +946,11 @@ impl Reader {
     }
 
     fn mouse_moved(&mut self, event: &MouseMoveEvent, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.hide_bars {
+        if !self.hide_bars || self.dragging() {
             return;
         }
-        let y = f32::from(event.position.y);
-        let height = f32::from(window.viewport_size().height);
+        let y = f32::from(event.position.y) - title_bar::height(window);
+        let height = content_height(window);
         let bars = (y <= BAR_TRIGGER, y >= height - BAR_TRIGGER);
         if bars != (self.top_bar, self.bottom_bar) {
             (self.top_bar, self.bottom_bar) = bars;
@@ -1112,7 +1118,7 @@ impl Reader {
         let panel = self.panel_width();
         let width = f32::from(viewport.width) - panel;
         let column = (width - 2. * MARGIN).clamp(100., COLUMN_WIDTH);
-        let max_height = f32::from(viewport.height) * 0.9;
+        let max_height = content_height(window) * 0.9;
         let (block, decode) = self.render_block(ix, Some(view), column, max_height, cx);
 
         let mut row = div().w_full().flex().justify_center().pr(px(panel));
@@ -1168,11 +1174,7 @@ impl Reader {
                 .when(item.block.inset, |d| d.pl(px(font_size * INSET)))
                 .child(text()),
             BlockKind::ListItem { depth, marker, .. } => {
-                let marker = match marker {
-                    Some(Marker::Bullet) => "•".to_string(),
-                    Some(Marker::Number(n)) => format!("{n}."),
-                    None => String::new(),
-                };
+                let marker = marker.as_ref().map(marker_label).unwrap_or_default();
                 div()
                     .flex()
                     .pb(px(spacing.bottom))
@@ -1246,7 +1248,7 @@ impl Reader {
         (element, decode)
     }
 
-    fn font_family(&self) -> &'static str {
+    pub(super) fn font_family(&self) -> &'static str {
         match self.font {
             Font::Serif => SERIF,
             Font::Sans => SANS,
@@ -1256,6 +1258,18 @@ impl Reader {
             Font::Garamond => "EB Garamond",
             Font::Mono => "IBM Plex Mono",
         }
+    }
+}
+
+/// The height of the window under the title bar.
+fn content_height(window: &Window) -> f32 {
+    f32::from(window.viewport_size().height) - title_bar::height(window)
+}
+
+fn marker_label(marker: &Marker) -> String {
+    match marker {
+        Marker::Bullet => "•".to_string(),
+        Marker::Number(n) => format!("{n}."),
     }
 }
 
@@ -1394,11 +1408,19 @@ impl Reader {
                     .child("//")
                     .child(div().min_w_0().truncate().child(chapter))
             }))
+            .child(div().flex_1())
+            .child(
+                style::button("settings", "SETTINGS", false, cx)
+                    .h(px(20.))
+                    .on_click(|_, window, cx| window.dispatch_action(Box::new(OpenSettings), cx)),
+            )
     }
 
     fn render_bottom_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
-        let percent = self.position().and_then(|position| self.percent(position));
+        let position = self.position();
+        let percent = position.and_then(|position| self.percent(position));
+        let pages = position.and_then(|position| self.page_count(position));
         div()
             .flex_none()
             .h(px(BOTTOM_BAR_HEIGHT))
@@ -1418,11 +1440,7 @@ impl Reader {
                 .w(px(44.))
                 .text_right(),
             )
-            .child(
-                style::button("settings", "SETTINGS", false, cx)
-                    .h(px(20.))
-                    .on_click(|_, window, cx| window.dispatch_action(Box::new(OpenSettings), cx)),
-            )
+            .children(pages.map(|(page, count)| style::dot(format!("{page} / {count}"), 16.)))
     }
 
     /// A row of dots, filled up to the percent, with a marker at the percent.
@@ -1583,6 +1601,7 @@ impl Reader {
 
 impl Render for Reader {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.painted.borrow_mut().clear();
         let tones = image_tones(cx);
         if tones != self.tones {
             self.tones = tones;
@@ -1622,6 +1641,9 @@ impl Render for Reader {
             window.request_animation_frame();
         }
         let ready = matches!(self.status, Status::Ready);
+        if ready {
+            self.estimate_pages(window);
+        }
         let pages = if ready && self.paged() {
             self.update_pages(window, cx).map(|geometry| {
                 let (element, decode) = self.render_pages(geometry, cx);
@@ -1749,5 +1771,6 @@ impl Render for Reader {
             )
             .children(bottom_bar)
             .children(float_top)
+            .children(self.drag_listener(cx))
     }
 }

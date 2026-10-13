@@ -20,6 +20,7 @@
 #   up                       release the left button
 #   mclick:<x>,<y>           click the middle button at a point
 #   rclick:<x>,<y>           click the right button at a point
+#   bclick:<x>,<y>           click the back button (XBUTTON1) at a point
 #   mdown:<x>,<y>            press the middle button at a point
 #   mup                      release the middle button
 #   scroll:<x>,<y>,<notches> turn the wheel over a point inside the window.
@@ -97,16 +98,17 @@ function Get-MainWindow([string]$name) {
     return $process.MainWindowHandle
 }
 
-# The flags of the left button. The middle button is 0x0020 and 0x0040, and the
-# right button 0x0008 and 0x0010.
-function Click-InWindow([IntPtr]$hwnd, [int]$x, [int]$y, [int]$count = 1, [uint32]$down = 0x0002, [uint32]$up = 0x0004) {
+# The flags of the left button. The middle button is 0x0020 and 0x0040, the
+# right button 0x0008 and 0x0010, and an X button 0x0080 and 0x0100 with the
+# button number as data.
+function Click-InWindow([IntPtr]$hwnd, [int]$x, [int]$y, [int]$count = 1, [uint32]$down = 0x0002, [uint32]$up = 0x0004, [uint32]$data = 0) {
     $rect = New-Object Drive.Win+RECT
     [Drive.Win]::GetWindowRect($hwnd, [ref]$rect) | Out-Null
     [Drive.Win]::SetCursorPos($rect.Left + $x, $rect.Top + $y) | Out-Null
     Start-Sleep -Milliseconds 120
     for ($i = 0; $i -lt $count; $i++) {
-        [Drive.Win]::mouse_event($down, 0, 0, 0, [UIntPtr]::Zero)
-        [Drive.Win]::mouse_event($up, 0, 0, 0, [UIntPtr]::Zero)
+        [Drive.Win]::mouse_event($down, 0, 0, $data, [UIntPtr]::Zero)
+        [Drive.Win]::mouse_event($up, 0, 0, $data, [UIntPtr]::Zero)
         Start-Sleep -Milliseconds 60
     }
 }
@@ -228,6 +230,11 @@ try {
             'rclick' {
                 $x, $y = $value -split ',', 2
                 Click-InWindow $application ([int]$x) ([int]$y) 1 0x0008 0x0010
+                Start-Sleep -Milliseconds $SettleMs
+            }
+            'bclick' {
+                $x, $y = $value -split ',', 2
+                Click-InWindow $application ([int]$x) ([int]$y) 1 0x0080 0x0100 1
                 Start-Sleep -Milliseconds $SettleMs
             }
             { $_ -in 'down', 'mdown' } {

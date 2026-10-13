@@ -1,9 +1,9 @@
 use book_buddy::library::{FONT_SIZES, Font, Mode, Settings, Theme};
 use gpui::{
-    App, AppContext, BorrowAppContext, Context, Div, Entity, EventEmitter, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, KeyBinding, ParentElement, PathPromptOptions, Render,
-    SharedString, Stateful, StatefulInteractiveElement, Styled, Subscription, Window, actions, div,
-    prelude::FluentBuilder, px,
+    AnyElement, App, AppContext, BorrowAppContext, Context, Div, Entity, EventEmitter, FocusHandle,
+    Focusable, InteractiveElement, IntoElement, KeyBinding, ParentElement, PathPromptOptions,
+    Render, SharedString, Stateful, StatefulInteractiveElement, Styled, Subscription, Window,
+    actions, div, prelude::FluentBuilder, px,
 };
 use gpui_kit::component::{ActiveTheme, ThemeMode};
 
@@ -64,6 +64,9 @@ fn apply_theme(cx: &mut App) {
 pub struct SettingsPanel {
     focus: FocusHandle,
     font_menu: Option<(Entity<Menu>, Subscription)>,
+    /// `.epub` files open in this exe.
+    #[cfg(target_os = "windows")]
+    associated: bool,
     _subscription: Subscription,
 }
 
@@ -82,6 +85,8 @@ impl SettingsPanel {
         Self {
             focus: cx.focus_handle(),
             font_menu: None,
+            #[cfg(target_os = "windows")]
+            associated: crate::association::registered(),
             _subscription: cx.observe_global::<Store>(|_, cx| cx.notify()),
         }
     }
@@ -107,6 +112,31 @@ impl SettingsPanel {
         });
         self.font_menu = Some((menu, dismiss));
         cx.notify();
+    }
+
+    /// The button that makes `.epub` files open in this exe.
+    #[cfg(target_os = "windows")]
+    fn association(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let (text, filled) = if self.associated {
+            ("REGISTERED", true)
+        } else {
+            ("REGISTER", false)
+        };
+        let button = style::button("associate", text, filled, cx).on_click(cx.listener(
+            |panel, _, _, cx| {
+                if let Err(e) = crate::association::register() {
+                    log::error!("{e:#}");
+                }
+                panel.associated = crate::association::registered();
+                cx.notify();
+            },
+        ));
+        Some(row("EPUB FILES =", button, cx).into_any_element())
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn association(&self, _: &mut Context<Self>) -> Option<AnyElement> {
+        None
     }
 
     fn add_folder(&mut self, cx: &mut Context<Self>) {
@@ -192,6 +222,7 @@ fn row(label: &'static str, control: impl IntoElement, cx: &App) -> impl IntoEle
 
 impl Render for SettingsPanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let association = self.association(cx);
         let theme = cx.theme();
         let library = &cx.global::<Store>().library;
         let settings = library.settings.clone();
@@ -363,6 +394,7 @@ impl Render for SettingsPanel {
                 ),
                 cx,
             ))
+            .children(association)
             .child(div().h(px(1.)).bg(theme.border))
             .child(folders);
 

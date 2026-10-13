@@ -1,11 +1,13 @@
 use std::path::PathBuf;
 
+use book_buddy::library::WindowState;
 use gpui::{
-    AppContext, BorrowAppContext, Context, Entity, ExternalPaths, Focusable, InteractiveElement,
-    IntoElement, ParentElement, PathPromptOptions, Render, Styled, Subscription, Window, div,
+    App, AppContext, BorrowAppContext, Context, DispatchPhase, Entity, ExternalPaths, Focusable,
+    InteractiveElement, IntoElement, Keystroke, MouseButton, MouseDownEvent, NavigationDirection,
+    ParentElement, PathPromptOptions, Render, Styled, Subscription, Window, WindowBounds, canvas,
+    div,
 };
 
-use crate::Import;
 use crate::cover_adjust::{CloseCoverAdjust, CoverAdjust};
 use crate::details::{CloseDetails, DetailsDialog};
 use crate::library_view::{LibraryEvent, LibraryView};
@@ -13,6 +15,7 @@ use crate::reader::{Reader, ReaderEvent};
 use crate::scan;
 use crate::settings::{CloseSettings, OpenSettings, SettingsPanel};
 use crate::store::Store;
+use crate::{Import, ToggleFullscreen};
 
 /// The root view. It shows the library or one book.
 pub struct Shell {
@@ -49,10 +52,14 @@ impl Shell {
             Some(path) => shell.open(path, window, cx),
             None => shell.library.focus_handle(cx).focus(window, cx),
         }
+        window.on_window_should_close(cx, |window, cx| {
+            save_window_state(window, cx);
+            true
+        });
         shell
     }
 
-    fn open(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn open(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         self.close(window, cx);
         let reader = cx.new(|cx| Reader::new(Some(path), cx));
         self._reader_subscriptions = vec![
@@ -157,23 +164,81 @@ impl Shell {
 }
 
 impl Render for Shell {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let content = match (&self.reader, &self.cover_adjust) {
             (Some(reader), _) if !reader.read(cx).loading() => reader.clone().into_any_element(),
             (None, Some((view, _))) => view.clone().into_any_element(),
             _ => self.library.clone().into_any_element(),
         };
+        #[cfg(target_os = "windows")]
+        let title_bar = crate::title_bar::render(window, cx);
+        #[cfg(not(target_os = "windows"))]
+        let title_bar = None::<gpui::Empty>;
         div()
             .relative()
             .size_full()
+            .flex()
+            .flex_col()
             .key_context("Shell")
             .on_action(cx.listener(Self::import_dialog))
             .on_action(cx.listener(Self::open_settings))
+            .on_action(|_: &ToggleFullscreen, window, _| window.toggle_fullscreen())
             .on_drop(cx.listener(|_, paths: &ExternalPaths, _, cx| {
                 scan::import(paths.paths().to_vec(), cx);
             }))
-            .child(content)
-            .children(self.details.as_ref().map(|(dialog, _)| dialog.clone()))
-            .children(self.settings.clone())
+            .children(title_bar)
+            .child(
+                div()
+                    .relative()
+                    .flex_1()
+                    .min_h_0()
+                    .child(content)
+                    .children(self.details.as_ref().map(|(dialog, _)| dialog.clone()))
+                    .children(self.settings.clone()),
+            )
+            .child(back_button())
     }
+}
+
+fn save_window_state(window: &Window, cx: &mut App) {
+    let (bounds, maximized, fullscreen) = match window.window_bounds() {
+        WindowBounds::Windowed(bounds) => (bounds, false, false),
+        WindowBounds::Maximized(bounds) => (bounds, true, false),
+        WindowBounds::Fullscreen(bounds) => (bounds, false, true),
+    };
+    let state = WindowState {
+        x: bounds.origin.x.into(),
+        y: bounds.origin.y.into(),
+        width: bounds.size.width.into(),
+        height: bounds.size.height.into(),
+        maximized,
+        fullscreen,
+    };
+    cx.update_global(|store: &mut Store, _| {
+        store.library.window = Some(state);
+        store.save();
+    });
+}
+
+/// The back button of a mouse does what Escape does. The listener is on the
+/// window, so overlays that block the mouse do not stop it.
+fn back_button() -> impl IntoElement {
+    canvas(
+        |_, _, _| {},
+        |_, _, window, _| {
+            window.on_mouse_event(|event: &MouseDownEvent, phase, window, cx| {
+                if phase == DispatchPhase::Bubble
+                    && event.button == MouseButton::Navigate(NavigationDirection::Back)
+                {
+                    window.defer(cx, |window, cx| {
+                        if let Ok(escape) = Keystroke::parse("escape") {
+                            window.dispatch_keystroke(escape, cx);
+                        }
+                    });
+                }
+            });
+        },
+    )
+    .absolute()
+    .size_0()
 }

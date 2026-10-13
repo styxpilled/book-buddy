@@ -16,8 +16,8 @@ use futures::channel::mpsc;
 use gpui::{
     AnyWindowHandle, App, AsyncApp, ExternalPaths, FileDropEvent, KeyDownEvent, KeyUpEvent,
     Keystroke, Modifiers, ModifiersChangedEvent, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, PlatformInput, Point, ScrollDelta, ScrollWheelEvent, TouchPhase, Window, point,
-    px,
+    MouseUpEvent, NavigationDirection, PlatformInput, Point, ScrollDelta, ScrollWheelEvent,
+    TouchPhase, Window, point, px,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use windows::Win32::Foundation::{HWND, POINT, RECT};
@@ -186,11 +186,12 @@ impl Sim {
                 }
                 "ok".to_string()
             }
-            "click" | "dblclick" | "rclick" | "mclick" => {
+            "click" | "dblclick" | "rclick" | "mclick" | "bclick" => {
                 let at = coordinates::<2>(value)?;
                 let button = match kind {
                     "rclick" => MouseButton::Right,
                     "mclick" => MouseButton::Middle,
+                    "bclick" => MouseButton::Navigate(NavigationDirection::Back),
                     _ => MouseButton::Left,
                 };
                 self.move_to((at[0], at[1]), handle, cx)?;

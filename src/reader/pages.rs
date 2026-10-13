@@ -4,17 +4,25 @@ use std::time::{Duration, Instant};
 use book_buddy::book::BlockKind;
 use book_buddy::library::{Font, Mode, Position};
 use gpui::{
-    AnyElement, AvailableSpace, Context, InteractiveElement, IntoElement, ParentElement,
-    ScrollDelta, ScrollWheelEvent, Styled, Window, div, px, size,
+    AnyElement, AvailableSpace, Context, Hsla, InteractiveElement, IntoElement, ParentElement,
+    ScrollDelta, ScrollWheelEvent, Styled, TextRun, Window, div, font, px, size,
 };
 use gpui_kit::component::ActiveTheme;
 
-use super::{COLUMN_WIDTH, MARGIN, QUOTE_GAP, Reader, TEXT_BOTTOM, TEXT_TOP};
+use super::{
+    COLUMN_WIDTH, HEADING_SCALE, HEADING_SPACING, LINE_SPACING, MARGIN, PRE_SCALE, QUOTE_GAP,
+    Reader, TEXT_BOTTOM, TEXT_TOP, content_height,
+};
 
 /// The pages are made again only when the window size stays the same this long.
 const RESIZE_DELAY: Duration = Duration::from_millis(150);
 /// Wheel distance in pixels for one page turn.
 const WHEEL_TURN: f32 = 60.;
+
+/// A line of usual text, to measure the mean width of a character.
+const SAMPLE: &str = "It is a truth universally acknowledged, that a single man in possession of a good fortune, must be in want of a wife.";
+/// The part of a line that text fills, as lines wrap between words.
+const WRAP: f32 = 0.9;
 
 /// What the pages depend on.
 #[derive(Clone, Copy, PartialEq)]
@@ -75,6 +83,19 @@ pub(super) struct Pages {
     /// A new window size and when it was first seen.
     resized: Option<(Geometry, Instant)>,
     wheel: f32,
+    estimate: Estimate,
+}
+
+/// The layout of the whole book on pages, estimated from the number of
+/// characters in each block, without a measurement.
+#[derive(Default)]
+struct Estimate {
+    /// The geometry and the number of items that it was made for.
+    key: Option<(Geometry, usize)>,
+    /// The top and the height of each item, from the start of the book.
+    /// Each chapter starts on a new page.
+    items: Vec<(f32, f32)>,
+    pages: usize,
 }
 
 impl Pages {
@@ -164,7 +185,7 @@ impl Reader {
             (width - 2. * MARGIN).clamp(100., COLUMN_WIDTH)
         };
         let height =
-            (f32::from(viewport.height) - self.bars_height() - TEXT_TOP - TEXT_BOTTOM).max(100.);
+            (content_height(window) - self.bars_height() - TEXT_TOP - TEXT_BOTTOM).max(100.);
         Geometry {
             columns,
             column,
@@ -174,6 +195,106 @@ impl Reader {
             font_size: self.font_size,
             hide_bars: self.hide_bars,
         }
+    }
+
+    /// Makes the page estimate again when the geometry or the items change.
+    /// Only a complete book has one.
+    pub(super) fn estimate_pages(&mut self, window: &Window) {
+        if self.chapters.len() < self.spine_len {
+            return;
+        }
+        let geometry = self.geometry(window);
+        let key = (geometry, self.items.len());
+        if self.pages.estimate.key == Some(key) {
+            return;
+        }
+        let char_width = self.char_width(window);
+        let mut items = Vec::with_capacity(self.items.len());
+        let mut y = 0.;
+        for ix in 0..self.items.len() {
+            if self.items[ix].chapter_start {
+                y = (y / geometry.height).ceil() * geometry.height;
+            }
+            let height = self.estimated_height(ix, geometry, char_width);
+            items.push((y, height));
+            y += height;
+        }
+        self.pages.estimate = Estimate {
+            key: Some(key),
+            items,
+            pages: ((y / geometry.height).ceil() as usize).max(1),
+        };
+    }
+
+    /// The page at the position and the pages in the book.
+    pub(super) fn page_count(&self, position: Position) -> Option<(usize, usize)> {
+        let estimate = &self.pages.estimate;
+        let (geometry, len) = estimate.key?;
+        if len != self.items.len() {
+            return None;
+        }
+        let ix = self.item_at(position)?;
+        let item = &self.items[ix];
+        let (top, height) = estimate.items[ix];
+        let into = position.offset.saturating_sub(item.block.offset);
+        let part = (into as f32 / item.len.max(1) as f32).min(1.);
+        let page = ((top + part * height) / geometry.height) as usize + 1;
+        Some((page.min(estimate.pages), estimate.pages))
+    }
+
+    fn estimated_height(&self, ix: usize, geometry: Geometry, char_width: f32) -> f32 {
+        let item = &self.items[ix];
+        let size = self.font_size;
+        let spacing = self.spacing(ix);
+        let text = |scale: f32, line: f32| {
+            let per_line = (geometry.column / (char_width * scale) * WRAP).max(1.);
+            let lines: f32 = item
+                .text
+                .split('\n')
+                .map(|text| (text.chars().count() as f32 / per_line).ceil().max(1.))
+                .sum();
+            lines * line
+        };
+        let content = match &item.block.kind {
+            BlockKind::Heading { level, .. } => {
+                let scale = HEADING_SCALE[(*level as usize).clamp(1, 6) - 1];
+                text(scale, size * scale * HEADING_SPACING)
+            }
+            BlockKind::Paragraph { .. } | BlockKind::ListItem { .. } => {
+                text(1., self.line_height())
+            }
+            BlockKind::Pre { .. } => text(PRE_SCALE, size * PRE_SCALE * LINE_SPACING),
+            BlockKind::Image { href, .. } => match self.pictures.get(href) {
+                Some(picture) => {
+                    let (w, h) = (picture.width as f32, picture.height as f32);
+                    h * (geometry.column / w).min(geometry.height / h).min(1.)
+                }
+                None => self.line_height(),
+            },
+            BlockKind::Rule => 1.,
+            BlockKind::Error { .. } => self.line_height(),
+        };
+        let quote = if item.block.quote > 0 {
+            size * QUOTE_GAP
+        } else {
+            0.
+        };
+        spacing.top + content + spacing.bottom + quote
+    }
+
+    fn char_width(&self, window: &Window) -> f32 {
+        let run = TextRun {
+            len: SAMPLE.len(),
+            font: font(self.font_family()),
+            color: Hsla::default(),
+            background_color: None,
+            underline: None,
+            strikethrough: None,
+        };
+        let line = window
+            .text_system()
+            .shape_line(SAMPLE.into(), px(self.font_size), &[run], None);
+        (f32::from(line.width) / SAMPLE.chars().count() as f32).max(1.)
     }
 
     /// Makes the pages that the next frame shows and applies the page turns.
