@@ -1,5 +1,5 @@
 use std::collections::{HashMap, VecDeque};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use futures::FutureExt;
@@ -10,7 +10,7 @@ use gpui::{
 use image::{Frame, RgbaImage};
 
 /// Changes an image from a file before it is shown.
-pub type Filter = Arc<dyn Fn(RgbaImage) -> RgbaImage + Send + Sync>;
+pub type Filter = Arc<dyn Fn(&Path, RgbaImage) -> RgbaImage + Send + Sync>;
 
 /// GPUI keeps a decoded image until it is dropped. This cache drops the least
 /// recently used image when it holds more than `capacity`.
@@ -38,6 +38,20 @@ impl BoundedImageCache {
         })
         .detach();
         cache
+    }
+
+    /// Images load with `filter` from now on. The images of `paths` load again.
+    pub fn set_filter(&mut self, filter: Filter, paths: &[PathBuf], cx: &mut App) {
+        self.filter = Some(filter);
+        for path in paths {
+            let key = hash(&Resource::Path(path.as_path().into()));
+            if let Some(mut item) = self.items.remove(&key) {
+                self.order.retain(|k| *k != key);
+                if let Some(Ok(image)) = item.get() {
+                    cx.drop_image(image, None);
+                }
+            }
+        }
     }
 }
 
@@ -93,12 +107,12 @@ impl ImageCache for BoundedImageCache {
 
 fn load_filtered(
     path: &Path,
-    filter: &(dyn Fn(RgbaImage) -> RgbaImage + Send + Sync),
+    filter: &(dyn Fn(&Path, RgbaImage) -> RgbaImage + Send + Sync),
 ) -> Result<Arc<RenderImage>, ImageCacheError> {
     let bytes = std::fs::read(path).map_err(|e| ImageCacheError::Io(Arc::new(e)))?;
     let image =
         image::load_from_memory(&bytes).map_err(|e| ImageCacheError::Other(Arc::new(e.into())))?;
-    let mut pixels = filter(image.into_rgba8());
+    let mut pixels = filter(path, image.into_rgba8());
     // RenderImage is BGRA.
     for pixel in pixels.pixels_mut() {
         pixel.0.swap(0, 2);

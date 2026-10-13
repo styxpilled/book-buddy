@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod cover_adjust;
+mod details;
 mod image_cache;
 mod library_view;
 mod menu;
@@ -43,6 +45,8 @@ fn main() {
             settings::init(cx);
             cx.bind_keys([
                 KeyBinding::new("escape", Back, Some("Reader")),
+                KeyBinding::new("escape", Back, Some("CoverAdjust")),
+                KeyBinding::new("escape", Back, Some("Details")),
                 KeyBinding::new("ctrl-o", Import, None),
             ]);
             scan::start(cx);

@@ -6,6 +6,8 @@ use gpui::{
 };
 
 use crate::Import;
+use crate::cover_adjust::{CloseCoverAdjust, CoverAdjust};
+use crate::details::{CloseDetails, DetailsDialog};
 use crate::library_view::{LibraryEvent, LibraryView};
 use crate::reader::{Reader, ReaderEvent};
 use crate::scan;
@@ -16,6 +18,8 @@ use crate::store::Store;
 pub struct Shell {
     library: Entity<LibraryView>,
     reader: Option<Entity<Reader>>,
+    cover_adjust: Option<(Entity<CoverAdjust>, Subscription)>,
+    details: Option<(Entity<DetailsDialog>, Subscription)>,
     settings: Option<Entity<SettingsPanel>>,
     _settings_subscription: Option<Subscription>,
     _subscriptions: Vec<Subscription>,
@@ -25,13 +29,17 @@ pub struct Shell {
 impl Shell {
     pub fn new(path: Option<PathBuf>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let library = cx.new(|cx| LibraryView::new(window, cx));
-        let subscription = cx.subscribe_in(&library, window, |this, _, event, window, cx| {
-            let LibraryEvent::Open(path) = event;
-            this.open(path.clone(), window, cx);
-        });
+        let subscription =
+            cx.subscribe_in(&library, window, |this, _, event, window, cx| match event {
+                LibraryEvent::Open(path) => this.open(path.clone(), window, cx),
+                LibraryEvent::AdjustCover(id) => this.open_cover_adjust(id, window, cx),
+                LibraryEvent::EditDetails(id) => this.open_details(id, window, cx),
+            });
         let mut shell = Self {
             library,
             reader: None,
+            cover_adjust: None,
+            details: None,
             settings: None,
             _settings_subscription: None,
             _subscriptions: vec![subscription],
@@ -56,6 +64,39 @@ impl Shell {
         ];
         reader.focus_handle(cx).focus(window, cx);
         self.reader = Some(reader);
+        cx.notify();
+    }
+
+    fn open_cover_adjust(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(view) = CoverAdjust::open(id, cx) else {
+            return;
+        };
+        let subscription = cx.subscribe_in(
+            &view,
+            window,
+            |this, _, _: &CloseCoverAdjust, window, cx| {
+                this.cover_adjust = None;
+                this.library.focus_handle(cx).focus(window, cx);
+                cx.notify();
+            },
+        );
+        view.focus_handle(cx).focus(window, cx);
+        self.cover_adjust = Some((view, subscription));
+        cx.notify();
+    }
+
+    fn open_details(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(dialog) = DetailsDialog::open(id, window, cx) else {
+            return;
+        };
+        let subscription =
+            cx.subscribe_in(&dialog, window, |this, _, _: &CloseDetails, window, cx| {
+                this.details = None;
+                this.library.focus_handle(cx).focus(window, cx);
+                cx.notify();
+            });
+        dialog.focus_handle(cx).focus(window, cx);
+        self.details = Some((dialog, subscription));
         cx.notify();
     }
 
@@ -117,8 +158,9 @@ impl Shell {
 
 impl Render for Shell {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let content = match &self.reader {
-            Some(reader) if !reader.read(cx).loading() => reader.clone().into_any_element(),
+        let content = match (&self.reader, &self.cover_adjust) {
+            (Some(reader), _) if !reader.read(cx).loading() => reader.clone().into_any_element(),
+            (None, Some((view, _))) => view.clone().into_any_element(),
             _ => self.library.clone().into_any_element(),
         };
         div()
@@ -131,6 +173,7 @@ impl Render for Shell {
                 scan::import(paths.paths().to_vec(), cx);
             }))
             .child(content)
+            .children(self.details.as_ref().map(|(dialog, _)| dialog.clone()))
             .children(self.settings.clone())
     }
 }

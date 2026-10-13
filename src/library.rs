@@ -7,6 +7,8 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::dither::Adjust;
+
 pub const VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -43,6 +45,36 @@ pub struct BookEntry {
     pub hidden: bool,
     #[serde(default)]
     pub missing: bool,
+    /// Applied to the cover before it is dithered.
+    #[serde(default, skip_serializing_if = "Adjust::is_none")]
+    pub cover_adjust: Adjust,
+    /// Set by the user in place of `title` and `author`, which come from the
+    /// file. A scan does not change them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_author: Option<String>,
+}
+
+impl BookEntry {
+    pub fn shown_title(&self) -> &str {
+        self.custom_title.as_deref().unwrap_or(&self.title)
+    }
+
+    pub fn shown_author(&self) -> &str {
+        self.custom_author.as_deref().unwrap_or(&self.author)
+    }
+
+    /// An empty value, or the value from the file, removes the override.
+    pub fn set_details(&mut self, title: &str, author: &str) {
+        self.custom_title = custom(title, &self.title);
+        self.custom_author = custom(author, &self.author);
+    }
+}
+
+fn custom(value: &str, from_file: &str) -> Option<String> {
+    let value = value.trim();
+    (!value.is_empty() && value != from_file).then(|| value.to_string())
 }
 
 /// A spine index, and a character offset into the text of that chapter.
@@ -234,6 +266,9 @@ impl Library {
                     percent: 0.,
                     hidden: false,
                     missing: false,
+                    cover_adjust: Adjust::NONE,
+                    custom_title: None,
+                    custom_author: None,
                 });
                 self.books.len() - 1
             }
@@ -330,13 +365,16 @@ mod tests {
         let dir = temp_dir("roundtrip");
         let path = dir.join("data").join("library.json");
         let mut library = Library::default();
-        library
-            .open(info("a", "C:\\Books\\a.epub"), time(200))
-            .position = Position {
+        let book = library.open(info("a", "C:\\Books\\a.epub"), time(200));
+        book.position = Position {
             spine: 3,
             offset: 42,
         };
+        book.cover_adjust.contrast = -20;
+        library.add(info("b", "C:\\Books\\b.epub"), time(300));
         library.save(&path).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert_eq!(text.matches("cover_adjust").count(), 1);
         assert_eq!(Library::load(&path).unwrap(), library);
         assert!(!path.with_extension("json.tmp").exists());
     }
@@ -447,6 +485,29 @@ mod tests {
         library.add(info("b", "D:\\found.epub"), time(300));
         assert_eq!(library.books.len(), 2);
         assert!(!library.books[1].missing);
+    }
+
+    #[test]
+    fn edited_details_stay_after_a_scan() {
+        let mut library = Library::default();
+        let book = library.add(info("a", "D:\\a.epub"), time(100));
+        book.set_details("  New title ", "");
+        assert_eq!(book.shown_title(), "New title");
+        assert_eq!(book.shown_author(), "Author");
+        assert_eq!(book.custom_author, None);
+
+        let mut changed = info("a", "D:\\a.epub");
+        changed.title = "Title 2".into();
+        let book = library.add(changed, time(200));
+        assert_eq!(book.title, "Title 2");
+        assert_eq!(book.shown_title(), "New title");
+
+        book.set_details("", "Author");
+        assert_eq!(
+            (book.custom_title.as_deref(), book.custom_author.as_deref()),
+            (None, None)
+        );
+        assert_eq!(book.shown_title(), "Title 2");
     }
 
     #[test]

@@ -1,11 +1,12 @@
 use std::cmp::Reverse;
+use std::collections::HashMap;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use book_buddy::dither::dither;
+use book_buddy::dither::{Adjust, dither};
 use book_buddy::library::BookEntry;
 use gpui::{
     App, AppContext, Context, Div, Entity, EventEmitter, FocusHandle, Focusable,
@@ -38,6 +39,10 @@ const CARD: &str = "card";
 
 pub enum LibraryEvent {
     Open(PathBuf),
+    /// Opens the cover adjustment screen for the book with this ID.
+    AdjustCover(String),
+    /// Opens the dialog to edit the title and author of the book with this ID.
+    EditDetails(String),
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -63,10 +68,13 @@ impl Sort {
     fn apply(self, books: &mut [BookEntry]) {
         match self {
             Sort::LastOpened => books.sort_by_key(|b| Reverse((b.last_opened, b.added))),
-            Sort::Title => books.sort_by_key(|b| b.title.to_lowercase()),
-            Sort::Author => {
-                books.sort_by_key(|b| (b.author.to_lowercase(), b.title.to_lowercase()))
-            }
+            Sort::Title => books.sort_by_key(|b| b.shown_title().to_lowercase()),
+            Sort::Author => books.sort_by_key(|b| {
+                (
+                    b.shown_author().to_lowercase(),
+                    b.shown_title().to_lowercase(),
+                )
+            }),
             Sort::Added => books.sort_by_key(|b| Reverse(b.added)),
         }
     }
@@ -78,6 +86,8 @@ pub struct LibraryView {
     covers: Entity<BoundedImageCache>,
     /// The tones the covers are dithered to. They follow the theme.
     tones: ([u8; 3], [u8; 3]),
+    /// The adjustments of the covers in `covers`, by cover path.
+    adjusts: Arc<HashMap<PathBuf, Adjust>>,
     menu: Option<OpenMenu>,
     _subscriptions: Vec<Subscription>,
 }
@@ -109,11 +119,17 @@ impl LibraryView {
             cx.observe_global::<Store>(|_, cx| cx.notify()),
         ];
         let tones = style::tones(cx);
+        let adjusts = Arc::new(cover_adjusts(cx));
         Self {
             filter,
             sort: Sort::LastOpened,
-            covers: cover_cache(tones, cx),
+            covers: BoundedImageCache::new(
+                DECODED_COVERS,
+                Some(cover_filter(tones, adjusts.clone())),
+                cx,
+            ),
             tones,
+            adjusts,
             menu: None,
             _subscriptions: subscriptions,
         }
@@ -177,8 +193,8 @@ impl LibraryView {
             .filter(|b| show_hidden || !b.hidden)
             .filter(|b| {
                 filter.is_empty()
-                    || b.title.to_lowercase().contains(&filter)
-                    || b.author.to_lowercase().contains(&filter)
+                    || b.shown_title().to_lowercase().contains(&filter)
+                    || b.shown_author().to_lowercase().contains(&filter)
             })
             .cloned()
             .collect();
@@ -246,17 +262,47 @@ impl LibraryView {
     }
 }
 
-fn cover_cache((dark, light): ([u8; 3], [u8; 3]), cx: &mut App) -> Entity<BoundedImageCache> {
-    let filter: Filter = Arc::new(move |image| dither(&image, style::DITHER_CELL, dark, light));
-    BoundedImageCache::new(DECODED_COVERS, Some(filter), cx)
+fn cover_adjusts(cx: &App) -> HashMap<PathBuf, Adjust> {
+    let store = cx.global::<Store>();
+    store
+        .library
+        .books
+        .iter()
+        .filter(|b| !b.cover_adjust.is_none())
+        .map(|b| (cover_path(store.covers(), &b.id), b.cover_adjust))
+        .collect()
+}
+
+fn cover_filter(
+    (dark, light): ([u8; 3], [u8; 3]),
+    adjusts: Arc<HashMap<PathBuf, Adjust>>,
+) -> Filter {
+    Arc::new(move |path, image| {
+        let adjust = adjusts.get(path).unwrap_or(&Adjust::NONE);
+        dither(&image, style::DITHER_CELL, adjust, dark, light)
+    })
 }
 
 impl Render for LibraryView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let tones = style::tones(cx);
+        let adjusts = cover_adjusts(cx);
         if tones != self.tones {
             self.tones = tones;
-            self.covers = cover_cache(tones, cx);
+            self.adjusts = Arc::new(adjusts);
+            let filter = cover_filter(tones, self.adjusts.clone());
+            self.covers = BoundedImageCache::new(DECODED_COVERS, Some(filter), cx);
+        } else if adjusts != *self.adjusts {
+            let changed: Vec<PathBuf> = adjusts
+                .keys()
+                .chain(self.adjusts.keys())
+                .filter(|path| adjusts.get(*path) != self.adjusts.get(*path))
+                .cloned()
+                .collect();
+            self.adjusts = Arc::new(adjusts);
+            let filter = cover_filter(tones, self.adjusts.clone());
+            self.covers
+                .update(cx, |covers, cx| covers.set_filter(filter, &changed, cx));
         }
         let books = Rc::new(self.visible_books(cx));
         let count = books.len();
@@ -322,6 +368,7 @@ fn card(book: &BookEntry, view: WeakEntity<LibraryView>, cx: &App) -> impl IntoE
     let theme = cx.theme();
     let store = cx.global::<Store>();
     let cover = cover_path(store.covers(), &book.id);
+    let has_cover = cover.exists();
     let progress = div()
         .h(px(18.))
         .px(px(5.))
@@ -345,7 +392,7 @@ fn card(book: &BookEntry, view: WeakEntity<LibraryView>, cx: &App) -> impl IntoE
         .border_color(theme.border)
         .bg(theme.muted)
         .map(|frame| {
-            if cover.exists() {
+            if has_cover {
                 frame.child(img(cover).size_full().object_fit(ObjectFit::Cover))
             } else {
                 frame
@@ -364,7 +411,7 @@ fn card(book: &BookEntry, view: WeakEntity<LibraryView>, cx: &App) -> impl IntoE
                             .text_size(px(10.))
                             .line_height(relative(1.3))
                             .text_center()
-                            .child(book.title.to_uppercase()),
+                            .child(book.shown_title().to_uppercase()),
                     )
             }
         })
@@ -411,7 +458,7 @@ fn card(book: &BookEntry, view: WeakEntity<LibraryView>, cx: &App) -> impl IntoE
                 .line_height(px(TITLE_LINE))
                 .max_h(px(2. * TITLE_LINE))
                 .overflow_hidden()
-                .child(book.title.clone()),
+                .child(book.shown_title().to_string()),
         )
         .child(
             div()
@@ -419,7 +466,7 @@ fn card(book: &BookEntry, view: WeakEntity<LibraryView>, cx: &App) -> impl IntoE
                 .line_height(px(AUTHOR_LINE))
                 .text_color(theme.muted_foreground)
                 .truncate()
-                .child(book.author.clone()),
+                .child(book.shown_author().to_string()),
         )
         .on_click({
             let view = view.clone();
@@ -432,7 +479,7 @@ fn card(book: &BookEntry, view: WeakEntity<LibraryView>, cx: &App) -> impl IntoE
             }
         })
         .on_mouse_down(MouseButton::Right, move |event, window, cx| {
-            let items = book_items(&id, &path, hidden, missing);
+            let items = book_items(&id, &path, hidden, missing, has_cover, view.clone());
             view.update(cx, |this, cx| {
                 this.open_menu(Some(event.position), items, window, cx)
             })
@@ -447,8 +494,18 @@ fn card(book: &BookEntry, view: WeakEntity<LibraryView>, cx: &App) -> impl IntoE
         .child(card)
 }
 
-fn book_items(id: &str, path: &Path, hidden: bool, missing: bool) -> Vec<MenuItem> {
-    let (hide_id, remove_id, shown) = (id.to_string(), id.to_string(), path.to_path_buf());
+fn book_items(
+    id: &str,
+    path: &Path,
+    hidden: bool,
+    missing: bool,
+    has_cover: bool,
+    view: WeakEntity<LibraryView>,
+) -> Vec<MenuItem> {
+    let (hide_id, remove_id) = (id.to_string(), id.to_string());
+    let (adjust_id, details_id) = (id.to_string(), id.to_string());
+    let details_view = view.clone();
+    let shown = path.to_path_buf();
     vec![
         MenuItem::new(if hidden { "UNHIDE" } else { "HIDE" }, move |_, cx| {
             cx.update_global(|store: &mut Store, _| {
@@ -458,6 +515,20 @@ fn book_items(id: &str, path: &Path, hidden: bool, missing: bool) -> Vec<MenuIte
                 }
             });
         }),
+        MenuItem::new("EDIT DETAILS", move |_, cx| {
+            details_view
+                .update(cx, |_, cx| {
+                    cx.emit(LibraryEvent::EditDetails(details_id.clone()))
+                })
+                .ok();
+        }),
+        MenuItem::new("ADJUST COVER", move |_, cx| {
+            view.update(cx, |_, cx| {
+                cx.emit(LibraryEvent::AdjustCover(adjust_id.clone()))
+            })
+            .ok();
+        })
+        .disabled(!has_cover),
         MenuItem::new("REMOVE FROM LIBRARY", move |_, cx| {
             cx.update_global(|store: &mut Store, _| {
                 if let Some(removed) = store.library.remove(&remove_id) {

@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use book_buddy::book::{Block, BlockKind, Book, Chapter, Marker, Run};
-use book_buddy::dither::dither_small;
+use book_buddy::dither::{self, dither_small};
 use book_buddy::library::{FileInfo, Font, Mode, Position};
 use chrono::Utc;
 use fast_image_resize::Resizer;
@@ -1277,7 +1277,13 @@ fn decode_image(bytes: &[u8], tones: Option<Tones>) -> Option<Arc<RenderImage>> 
         Some((dark, light)) => {
             let scale = (COLUMN_WIDTH / width as f32).min(1.) / DITHER_DOT;
             let dots = shrink(image, scale).into_rgba8();
-            dither_small(&dots, style::DITHER_CELL, dark, light)
+            dither_small(
+                &dots,
+                style::DITHER_CELL,
+                &dither::Adjust::NONE,
+                dark,
+                light,
+            )
         }
         None => {
             let scale = (IMAGE_MAX as f32 / width.max(height) as f32).min(1.);
@@ -1308,7 +1314,12 @@ fn shrink(image: DynamicImage, scale: f32) -> DynamicImage {
 impl Reader {
     fn render_top_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
-        let title = self.book.as_ref().map(|book| book.title.to_uppercase());
+        let library = &cx.global::<Store>().library;
+        let edited = self.book_id.as_deref().and_then(|id| library.book(id));
+        let title = match (edited, &self.book) {
+            (Some(entry), _) => Some(entry.shown_title().to_uppercase()),
+            (None, book) => book.as_ref().map(|book| book.title.to_uppercase()),
+        };
         let chapter = self
             .current_toc()
             .and_then(|ix| Some(self.book.as_ref()?.toc[ix].label.to_uppercase()));
