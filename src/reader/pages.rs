@@ -9,7 +9,7 @@ use gpui::{
 };
 use gpui_kit::component::ActiveTheme;
 
-use super::{BOTTOM_BAR_HEIGHT, COLUMN_WIDTH, MARGIN, QUOTE_GAP, Reader};
+use super::{COLUMN_WIDTH, MARGIN, QUOTE_GAP, Reader, TEXT_BOTTOM, TEXT_TOP};
 
 /// The pages are made again only when the window size stays the same this long.
 const RESIZE_DELAY: Duration = Duration::from_millis(150);
@@ -25,12 +25,14 @@ pub(super) struct Geometry {
     panel: f32,
     font: Font,
     font_size: f32,
+    hide_bars: bool,
 }
 
 impl Geometry {
     /// Only the window size is different. Other changes apply at once.
     fn resized(&self, other: &Geometry) -> bool {
-        (self.panel, self.font, self.font_size) == (other.panel, other.font, other.font_size)
+        (self.panel, self.font, self.font_size, self.hide_bars)
+            == (other.panel, other.font, other.font_size, other.hide_bars)
     }
 }
 
@@ -161,7 +163,8 @@ impl Reader {
         } else {
             (width - 2. * MARGIN).clamp(100., COLUMN_WIDTH)
         };
-        let height = (f32::from(viewport.height) - BOTTOM_BAR_HEIGHT - 2. * MARGIN).max(100.);
+        let height =
+            (f32::from(viewport.height) - self.bars_height() - TEXT_TOP - TEXT_BOTTOM).max(100.);
         Geometry {
             columns,
             column,
@@ -169,6 +172,7 @@ impl Reader {
             panel,
             font: self.font,
             font_size: self.font_size,
+            hide_bars: self.hide_bars,
         }
     }
 
@@ -459,7 +463,7 @@ impl Reader {
             .flex()
             .justify_center()
             .gap(px(MARGIN - 0.5))
-            .pt(px(MARGIN))
+            .pt(px(TEXT_TOP))
             .pr(px(geometry.panel))
             .on_scroll_wheel(cx.listener(Self::wheel))
             .children(columns)

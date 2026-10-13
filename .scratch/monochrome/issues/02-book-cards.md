@@ -1,6 +1,6 @@
 # 02: Book cards
 
-Status: needs-triage
+Status: done
 Spec: [../spec.md](../spec.md)
 Depends on: none
 

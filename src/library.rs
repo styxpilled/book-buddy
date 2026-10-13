@@ -59,6 +59,9 @@ pub struct Settings {
     pub font: Font,
     pub font_size: u32,
     pub theme: Theme,
+    pub show_hidden: bool,
+    /// Show the bars of the reader only when the pointer is near them.
+    pub hide_bars: bool,
 }
 
 pub const FONT_SIZES: RangeInclusive<u32> = 12..=36;
@@ -70,6 +73,8 @@ impl Default for Settings {
             font: Font::Serif,
             font_size: 18,
             theme: Theme::Light,
+            show_hidden: false,
+            hide_bars: false,
         }
     }
 }
@@ -338,6 +343,8 @@ mod tests {
         let mut library = Library::load(&path).unwrap();
         assert_eq!(library.settings.theme, Theme::Dark);
         assert_eq!(library.settings.font_size, 18);
+        assert!(!library.settings.show_hidden);
+        assert!(!library.settings.hide_bars);
 
         library.settings.font = Font::Sans;
         library.settings.font_size = 24;

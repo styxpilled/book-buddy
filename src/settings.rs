@@ -287,6 +287,28 @@ impl Render for SettingsPanel {
                 ),
                 cx,
             ))
+            .child(row(
+                "BARS =",
+                choice(
+                    "bars",
+                    settings.hide_bars,
+                    &[(false, "ALWAYS", true), (true, "ON HOVER", true)],
+                    |s, v| s.hide_bars = v,
+                    cx,
+                ),
+                cx,
+            ))
+            .child(row(
+                "SHOW HIDDEN =",
+                choice(
+                    "show-hidden",
+                    settings.show_hidden,
+                    &[(false, "OFF", true), (true, "ON", true)],
+                    |s, v| s.show_hidden = v,
+                    cx,
+                ),
+                cx,
+            ))
             .child(div().h(px(1.)).bg(theme.border))
             .child(folders);
 

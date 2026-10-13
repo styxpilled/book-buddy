@@ -1,6 +1,6 @@
 # 01: Library toolbar
 
-Status: needs-triage
+Status: done
 Spec: [../spec.md](../spec.md)
 Depends on: none
 

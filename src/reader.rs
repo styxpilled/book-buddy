@@ -10,6 +10,7 @@ use std::time::Duration;
 use book_buddy::book::{Block, BlockKind, Book, Chapter, Marker, Run};
 use book_buddy::library::{FileInfo, Font, Mode, Position};
 use chrono::Utc;
+use fast_image_resize::Resizer;
 use gpui::{
     AnyElement, App, AppContext, BorderStyle, BorrowAppContext, Bounds, Context, DispatchPhase,
     Entity, EventEmitter, FocusHandle, Focusable, FontStyle, FontWeight, HighlightStyle, Hsla,
@@ -20,8 +21,7 @@ use gpui::{
     div, fill, img, list, outline, point, prelude::FluentBuilder, px, relative, size, uniform_list,
 };
 use gpui_kit::component::{ActiveTheme, Theme};
-use image::imageops::FilterType;
-use image::{Frame, ImageReader};
+use image::{DynamicImage, Frame, ImageReader};
 
 mod pages;
 mod search;
@@ -51,11 +51,16 @@ const MARGIN: f32 = 32.;
 const DECODED_IMAGES: usize = 16;
 /// Longest side of a decoded image, in pixels.
 const IMAGE_MAX: u32 = 2048;
+/// Blocks after the position of an opened book whose images decode at once.
+const DECODE_AHEAD: usize = 8;
 const SAVE_DELAY: Duration = Duration::from_secs(1);
 const TOP_BAR_HEIGHT: f32 = 40.;
-/// The top bar shows when the pointer is this close to the top of the window.
-const TOP_EDGE: f32 = 12.;
 const BOTTOM_BAR_HEIGHT: f32 = 38.;
+/// With hidden bars, a bar shows when the pointer is this close to its edge.
+const BAR_TRIGGER: f32 = 44.;
+/// The space above and below the text of the reader.
+const TEXT_TOP: f32 = 48.;
+const TEXT_BOTTOM: f32 = TEXT_TOP;
 const TOC_WIDTH: f32 = 330.;
 /// Distance between the dots of the seek bar.
 const SEEK_STEP: f32 = 6.;
@@ -276,7 +281,10 @@ pub struct Reader {
     search: Search,
     selection: Option<Selection>,
     toc_scroll: UniformListScrollHandle,
+    hide_bars: bool,
+    /// With hidden bars, the bars that the pointer is near.
     top_bar: bool,
+    bottom_bar: bool,
     /// The list corrects a scroll past the end in its layout, after the render.
     /// One more frame shows the corrected position in the bars.
     redraw: bool,
@@ -318,7 +326,7 @@ impl Reader {
         ];
         let settings = &cx.global::<Store>().library.settings;
         let (font, font_size) = (settings.font, settings.font_size as f32);
-        let mode = settings.mode;
+        let (mode, hide_bars) = (settings.mode, settings.hide_bars);
         let mut reader = Self {
             status: Status::NoBook,
             book: None,
@@ -339,7 +347,9 @@ impl Reader {
             search: Search::default(),
             selection: None,
             toc_scroll: UniformListScrollHandle::new(),
+            hide_bars,
             top_bar: false,
+            bottom_bar: false,
             redraw: false,
             seeking: false,
             font,
@@ -435,6 +445,7 @@ impl Reader {
     fn apply_settings(&mut self, cx: &mut Context<Self>) {
         let settings = &cx.global::<Store>().library.settings;
         let (font, font_size, mode) = (settings.font, settings.font_size as f32, settings.mode);
+        let hide_bars = settings.hide_bars;
         if (font, font_size) != (self.font, self.font_size) {
             self.font = font;
             self.font_size = font_size;
@@ -448,6 +459,21 @@ impl Reader {
                 self.scroll_to_position(position);
             }
             cx.notify();
+        }
+        if hide_bars != self.hide_bars {
+            self.hide_bars = hide_bars;
+            self.top_bar = false;
+            self.bottom_bar = false;
+            cx.notify();
+        }
+    }
+
+    /// The height of the bars that take space from the text.
+    fn bars_height(&self) -> f32 {
+        if self.hide_bars {
+            0.
+        } else {
+            TOP_BAR_HEIGHT + BOTTOM_BAR_HEIGHT
         }
     }
 
@@ -477,7 +503,9 @@ impl Reader {
         }
         self.list.splice(start..start, self.items.len() - start);
         if let Some(target) = self.pending.take_if(|t| t.spine < self.chapters.len()) {
-            self.scroll_to_target(&target);
+            let position = self.target_position(&target);
+            self.scroll_to_position(position);
+            self.decode_near(position, cx);
         }
         if self.pending.is_none() && !self.items.is_empty() {
             self.status = Status::Ready;
@@ -508,6 +536,10 @@ impl Reader {
     }
 
     fn scroll_to_target(&mut self, target: &Target) {
+        self.scroll_to_position(self.target_position(target));
+    }
+
+    fn target_position(&self, target: &Target) -> Position {
         let anchors = &self.chapters[target.spine].anchors;
         let offset = target
             .anchor
@@ -515,10 +547,42 @@ impl Reader {
             .and_then(|anchor| anchors.get(anchor))
             .copied()
             .unwrap_or(target.offset);
-        self.scroll_to_position(Position {
+        Position {
             spine: target.spine,
             offset,
-        });
+        }
+    }
+
+    /// The item that holds a position. An empty chapter gives the start of
+    /// the next one.
+    fn item_at(&self, position: Position) -> Option<usize> {
+        let first = self.chapters[position.spine].first;
+        let end = self.chapter_end(position.spine);
+        (first..end)
+            .rev()
+            .find(|&ix| self.items[ix].block.offset <= position.offset)
+            .or((first < self.items.len()).then_some(first))
+    }
+
+    /// Starts to decode the images at a position before a render asks for them.
+    fn decode_near(&mut self, position: Position, cx: &mut Context<Self>) {
+        for href in self.images_near(position) {
+            self.decode(&href, cx);
+        }
+    }
+
+    fn images_near(&self, position: Position) -> Vec<String> {
+        let Some(start) = self.item_at(position) else {
+            return Vec::new();
+        };
+        let end = self.chapter_end(position.spine).min(start + DECODE_AHEAD);
+        self.items[start..end]
+            .iter()
+            .filter_map(|item| match &item.block.kind {
+                BlockKind::Image { href, .. } => Some(href.clone()),
+                _ => None,
+            })
+            .collect()
     }
 
     fn scroll_to_position(&mut self, position: Position) {
@@ -526,13 +590,7 @@ impl Reader {
             self.show_position(position);
             return;
         }
-        let first = self.chapters[position.spine].first;
-        let end = self.chapter_end(position.spine);
-        let found = (first..end)
-            .rev()
-            .find(|&ix| self.items[ix].block.offset <= position.offset);
-        // An empty chapter goes to the start of the next one.
-        let Some(ix) = found.or((first < self.items.len()).then_some(first)) else {
+        let Some(ix) = self.item_at(position) else {
             return;
         };
         let item = &self.items[ix];
@@ -801,17 +859,15 @@ impl Reader {
         self.schedule_save(cx);
     }
 
-    fn mouse_moved(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
+    fn mouse_moved(&mut self, event: &MouseMoveEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.hide_bars {
+            return;
+        }
         let y = f32::from(event.position.y);
-        let show = if y <= TOP_EDGE {
-            true
-        } else if y > TOP_BAR_HEIGHT {
-            false
-        } else {
-            self.top_bar
-        };
-        if show != self.top_bar {
-            self.top_bar = show;
+        let height = f32::from(window.viewport_size().height);
+        let bars = (y <= BAR_TRIGGER, y >= height - BAR_TRIGGER);
+        if bars != (self.top_bar, self.bottom_bar) {
+            (self.top_bar, self.bottom_bar) = bars;
             cx.notify();
         }
     }
@@ -959,7 +1015,7 @@ impl Reader {
 
         let mut row = div().w_full().flex().justify_center().pr(px(panel));
         if ix == 0 {
-            row = row.pt(px(MARGIN));
+            row = row.pt(px(TEXT_TOP));
         } else if item.chapter_start {
             row = row.pt(px(self.font_size * 3.));
         }
@@ -1136,8 +1192,16 @@ fn load_chapter(book: &Book, index: usize) -> Loaded {
 
 fn decode_image(bytes: &[u8]) -> Option<Arc<RenderImage>> {
     let mut image = image::load_from_memory(bytes).ok()?;
-    if image.width() > IMAGE_MAX || image.height() > IMAGE_MAX {
-        image = image.resize(IMAGE_MAX, IMAGE_MAX, FilterType::Triangle);
+    let (width, height) = (image.width(), image.height());
+    if width.max(height) > IMAGE_MAX {
+        let scale = IMAGE_MAX as f32 / width.max(height) as f32;
+        let size = |side: u32| ((side as f32 * scale).round() as u32).max(1);
+        let mut small = DynamicImage::new(size(width), size(height), image.color());
+        image = match Resizer::new().resize(&image, &mut small, None) {
+            Ok(()) => small,
+            // A pixel format that the resizer does not know.
+            Err(_) => image.thumbnail(IMAGE_MAX, IMAGE_MAX),
+        };
     }
     let mut pixels = image.into_rgba8();
     // RenderImage is BGRA.
@@ -1148,17 +1212,14 @@ fn decode_image(bytes: &[u8]) -> Option<Arc<RenderImage>> {
 }
 
 impl Reader {
-    fn render_top_bar(&self, cx: &App) -> impl IntoElement {
+    fn render_top_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let title = self.book.as_ref().map(|book| book.title.to_uppercase());
         let chapter = self
             .current_toc()
             .and_then(|ix| Some(self.book.as_ref()?.toc[ix].label.to_uppercase()));
         div()
-            .absolute()
-            .top_0()
-            .left_0()
-            .right_0()
+            .flex_none()
             .h(px(TOP_BAR_HEIGHT))
             .px(px(MARGIN))
             .flex()
@@ -1169,7 +1230,11 @@ impl Reader {
             .border_b_1()
             .border_color(theme.border)
             .occlude()
-            .child(style::tag("ESC", cx))
+            .child(
+                style::button("close-book", "ESC", false, cx)
+                    .h(px(20.))
+                    .on_click(cx.listener(|_, _, _, cx| cx.emit(ReaderEvent::Close))),
+            )
             .children(title.map(|title| {
                 div()
                     .flex_none()
@@ -1453,6 +1518,25 @@ impl Render for Reader {
         };
         let (background, foreground) = (theme.background, theme.foreground);
         let (chrome_font, chrome_size) = (theme.font_family.clone(), theme.font_size);
+        let chrome = || {
+            div()
+                .font_family(chrome_font.clone())
+                .text_size(chrome_size)
+                .line_height(relative(1.4))
+        };
+        let mut top_bar = ready.then(|| chrome().child(self.render_top_bar(cx)));
+        let mut bottom_bar = ready.then(|| chrome().child(self.render_bottom_bar(cx)));
+        let mut float_top = None;
+        if self.hide_bars {
+            // Hidden bars show above the text, at the edges of the window.
+            float_top = top_bar
+                .take()
+                .filter(|_| self.top_bar)
+                .map(|bar| bar.absolute().top_0().left_0().right_0());
+            bottom_bar = bottom_bar
+                .filter(|_| self.bottom_bar || self.seeking)
+                .map(|bar| bar.absolute().bottom_0().left_0().right_0());
+        }
 
         // The search box is outside the "Reader" key context, so that the keys
         // of the reader do not take the characters that you type.
@@ -1464,11 +1548,13 @@ impl Render for Reader {
                 MouseButton::Left,
                 cx.listener(|reader, _, _, cx| reader.end_drag(cx)),
             )
+            .relative()
             .size_full()
             .flex()
             .flex_col()
             .bg(background)
             .text_color(foreground)
+            .children(top_bar)
             .child(
                 div()
                     .relative()
@@ -1500,22 +1586,14 @@ impl Render for Reader {
                             .text_size(px(self.font_size))
                             .line_height(relative(LINE_SPACING))
                             .child(body)
-                            .when(ready && (self.toc_open || self.top_bar), |main| {
+                            .when(ready && self.toc_open, |main| {
                                 main.child(
-                                    div()
+                                    chrome()
                                         .absolute()
                                         .top_0()
                                         .left_0()
                                         .size_full()
-                                        .font_family(chrome_font.clone())
-                                        .text_size(chrome_size)
-                                        .line_height(relative(1.4))
-                                        .when(self.toc_open, |chrome| {
-                                            chrome.child(self.render_toc(cx))
-                                        })
-                                        .when(self.top_bar, |chrome| {
-                                            chrome.child(self.render_top_bar(cx))
-                                        }),
+                                        .child(self.render_toc(cx)),
                                 )
                             }),
                     )
@@ -1523,13 +1601,7 @@ impl Render for Reader {
                         main.child(self.render_search(cx))
                     }),
             )
-            .when(ready, |reader| {
-                reader.child(
-                    div()
-                        .font_family(chrome_font)
-                        .text_size(chrome_size)
-                        .child(self.render_bottom_bar(cx)),
-                )
-            })
+            .children(bottom_bar)
+            .children(float_top)
     }
 }

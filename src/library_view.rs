@@ -8,13 +8,12 @@ use std::sync::Arc;
 use book_buddy::dither::dither;
 use book_buddy::library::BookEntry;
 use gpui::{
-    App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, ObjectFit, ParentElement, Render, SharedString, StatefulInteractiveElement,
-    Styled, StyledImage, Subscription, WeakEntity, Window, div, image_cache, img, prelude::*, px,
-    relative, uniform_list,
+    App, AppContext, Context, Div, Entity, EventEmitter, FocusHandle, Focusable,
+    InteractiveElement, IntoElement, ObjectFit, ParentElement, Render, SharedString,
+    StatefulInteractiveElement, Styled, StyledImage, Subscription, WeakEntity, Window, div,
+    image_cache, img, prelude::*, px, relative, uniform_list,
 };
 use gpui_kit::component::button::{Button, ButtonVariants};
-use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::menu::{ContextMenuExt, DropdownMenu, PopupMenuItem};
 use gpui_kit::component::{ActiveTheme, Sizable};
@@ -28,10 +27,14 @@ use crate::style;
 
 const MARGIN: f32 = 32.;
 const GAP: f32 = 32.;
-const ROW_GAP: f32 = 26.;
-const CARD_TEXT_HEIGHT: f32 = 84.;
 const TITLE_LINE: f32 = 16.;
+const AUTHOR_LINE: f32 = 14.;
+const COVER_GAP: f32 = 4.;
+const CARD_BOTTOM: f32 = 4.;
+/// The space under the cover, gaps and lines included, for a title of two lines.
+const CARD_TEXT_HEIGHT: f32 = COVER_GAP + 2. + 2. * TITLE_LINE + 2. + AUTHOR_LINE + CARD_BOTTOM;
 const DECODED_COVERS: usize = 150;
+const CARD: &str = "card";
 
 pub enum LibraryEvent {
     Open(PathBuf),
@@ -72,7 +75,6 @@ impl Sort {
 pub struct LibraryView {
     filter: Entity<InputState>,
     sort: Sort,
-    show_hidden: bool,
     covers: Entity<BoundedImageCache>,
     /// The tones the covers are dithered to. They follow the theme.
     tones: ([u8; 3], [u8; 3]),
@@ -102,7 +104,6 @@ impl LibraryView {
         Self {
             filter,
             sort: Sort::LastOpened,
-            show_hidden: false,
             covers: cover_cache(tones, cx),
             tones,
             _subscriptions: subscriptions,
@@ -111,12 +112,12 @@ impl LibraryView {
 
     fn visible_books(&self, cx: &App) -> Vec<BookEntry> {
         let filter = self.filter.read(cx).value().to_lowercase();
-        let mut books: Vec<BookEntry> = cx
-            .global::<Store>()
-            .library
+        let library = &cx.global::<Store>().library;
+        let show_hidden = library.settings.show_hidden;
+        let mut books: Vec<BookEntry> = library
             .books
             .iter()
-            .filter(|b| self.show_hidden || !b.hidden)
+            .filter(|b| show_hidden || !b.hidden)
             .filter(|b| {
                 filter.is_empty()
                     || b.title.to_lowercase().contains(&filter)
@@ -128,7 +129,7 @@ impl LibraryView {
         books
     }
 
-    fn render_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_header(&self, count: usize, cx: &mut Context<Self>) -> impl IntoElement {
         let view = cx.entity().downgrade();
         let sort = self.sort;
         div()
@@ -137,6 +138,7 @@ impl LibraryView {
             .gap(px(20.))
             .px(px(MARGIN))
             .pt(px(18.))
+            .pb(px(4.))
             .child(
                 div()
                     .w(px(330.))
@@ -154,7 +156,7 @@ impl LibraryView {
             )
             .child(
                 Button::new("sort")
-                    .label(format!("SORT = {}", sort.label()))
+                    .label(sort.label())
                     .ghost()
                     .small()
                     .dropdown_menu(move |mut menu, _, _| {
@@ -175,17 +177,8 @@ impl LibraryView {
                         menu
                     }),
             )
-            .child(
-                Checkbox::new("show-hidden")
-                    .label("SHOW HIDDEN")
-                    .small()
-                    .checked(self.show_hidden)
-                    .on_click(cx.listener(|this, checked: &bool, _, cx| {
-                        this.show_hidden = *checked;
-                        cx.notify();
-                    })),
-            )
-            .child(div().flex_1())
+            .child(style::rule(cx))
+            .child(style::dot(format!("{count:02}"), 26.))
             .child(
                 style::button("add", "+ ADD BOOKS", true, cx)
                     .on_click(|_, window, cx| window.dispatch_action(Box::new(Import), cx)),
@@ -241,33 +234,19 @@ impl Render for LibraryView {
                             .map(|row| {
                                 let start = row * columns;
                                 let end = (start + columns).min(books.len());
-                                div()
-                                    .flex()
-                                    .gap(px(GAP))
-                                    .px(px(MARGIN))
-                                    .pt(px(ROW_GAP))
-                                    .children(
-                                        books[start..end]
-                                            .iter()
-                                            .map(|book| card(book, view.clone(), cx)),
-                                    )
+                                div().flex().gap(px(GAP)).px(px(MARGIN)).children(
+                                    books[start..end]
+                                        .iter()
+                                        .map(|book| card(book, view.clone(), cx)),
+                                )
                             })
                             .collect()
                     })
-                    .size_full(),
+                    .size_full()
+                    .pt(px(GAP)),
                 )
                 .into_any_element()
         };
-
-        let head = div()
-            .flex()
-            .items_center()
-            .gap(px(10.))
-            .mx(px(MARGIN))
-            .mt(px(18.))
-            .child(style::tag("LIBRARY", cx))
-            .child(style::rule(cx))
-            .child(style::dot(format!("{count:02}"), 26.));
 
         div()
             .relative()
@@ -277,8 +256,7 @@ impl Render for LibraryView {
             .bg(theme.background)
             .text_color(theme.foreground)
             .child(style::grid(cx))
-            .child(self.render_toolbar(cx))
-            .child(head)
+            .child(self.render_header(count, cx))
             .child(body)
     }
 }
@@ -287,25 +265,24 @@ fn card(book: &BookEntry, view: WeakEntity<LibraryView>, cx: &App) -> impl IntoE
     let theme = cx.theme();
     let store = cx.global::<Store>();
     let cover = cover_path(store.covers(), &book.id);
-    let status = if book.missing {
-        style::tag("FILE MISSING", cx)
-    } else if book.last_opened.is_none() {
-        style::tag("NEW", cx)
-    } else {
-        div()
-            .flex()
-            .items_center()
-            .gap(px(6.))
-            .child(style::progress(book.percent, cx))
-            .child(style::dot(format!("{:.0}%", book.percent), 13.))
-    };
+    let progress = div()
+        .h(px(18.))
+        .px(px(5.))
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .border_1()
+        .border_color(theme.border)
+        .bg(theme.background)
+        .child(style::progress(book.percent, cx))
+        .child(style::dot(format!("{:.0}%", book.percent), 13.));
 
     let cover = div()
         .relative()
         .flex_none()
         .w(px(COVER_WIDTH as f32))
         .h(px(COVER_HEIGHT as f32))
-        .mb(px(6.))
+        .mb(px(COVER_GAP))
         .overflow_hidden()
         .border_1()
         .border_color(theme.border)
@@ -333,16 +310,38 @@ fn card(book: &BookEntry, view: WeakEntity<LibraryView>, cx: &App) -> impl IntoE
                             .child(book.title.to_uppercase()),
                     )
             }
+        })
+        .when(book.missing || book.hidden, |cover| {
+            cover.child(
+                div()
+                    .absolute()
+                    .left(px(6.))
+                    .top(px(6.))
+                    .flex()
+                    .gap(px(6.))
+                    .when(book.missing, |row| {
+                        row.child(style::tag("FILE MISSING", cx))
+                    })
+                    .when(book.hidden, |row| row.child(style::tag("HIDDEN", cx))),
+            )
+        })
+        .child(on_hover(progress.absolute().left(px(6.)).bottom(px(6.))))
+        .when(book.last_opened.is_none(), |cover| {
+            cover.child(on_hover(
+                style::tag("NEW", cx)
+                    .absolute()
+                    .right(px(6.))
+                    .bottom(px(6.)),
+            ))
         });
 
     let id = book.id.clone();
     let path = book.path.clone();
     let missing = book.missing;
     let hidden = book.hidden;
-    div()
+    let card = div()
         .id(SharedString::from(book.id.clone()))
-        .w(px(COVER_WIDTH as f32))
-        .h(px(COVER_HEIGHT as f32 + CARD_TEXT_HEIGHT))
+        .group(CARD)
         .flex()
         .flex_col()
         .gap(px(2.))
@@ -360,18 +359,10 @@ fn card(book: &BookEntry, view: WeakEntity<LibraryView>, cx: &App) -> impl IntoE
         .child(
             div()
                 .text_size(px(11.))
+                .line_height(px(AUTHOR_LINE))
                 .text_color(theme.muted_foreground)
                 .truncate()
                 .child(book.author.clone()),
-        )
-        .child(
-            div()
-                .mt(px(3.))
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .child(status)
-                .when(hidden, |row| row.child(style::tag("HIDDEN", cx))),
         )
         .on_click({
             let view = view.clone();
@@ -419,5 +410,19 @@ fn card(book: &BookEntry, view: WeakEntity<LibraryView>, cx: &App) -> impl IntoE
                         }
                     }),
             )
-        })
+        });
+
+    // A fixed height keeps the rows even. Only the card in it is clickable.
+    div()
+        .flex_none()
+        .w(px(COVER_WIDTH as f32))
+        .h(px(COVER_HEIGHT as f32 + CARD_TEXT_HEIGHT))
+        .child(card)
+}
+
+/// Shown only while the pointer is on the card.
+fn on_hover(element: Div) -> Div {
+    element
+        .opacity(0.)
+        .group_hover(CARD, |style| style.opacity(1.))
 }

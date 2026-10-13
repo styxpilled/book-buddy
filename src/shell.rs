@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use gpui::{
-    AppContext, Context, Entity, ExternalPaths, Focusable, InteractiveElement, IntoElement,
-    ParentElement, PathPromptOptions, Render, Styled, Subscription, Window, div,
+    AppContext, BorrowAppContext, Context, Entity, ExternalPaths, Focusable, InteractiveElement,
+    IntoElement, ParentElement, PathPromptOptions, Render, Styled, Subscription, Window, div,
 };
 
 use crate::Import;
@@ -10,6 +10,7 @@ use crate::library_view::{LibraryEvent, LibraryView};
 use crate::reader::{Reader, ReaderEvent};
 use crate::scan;
 use crate::settings::{CloseSettings, OpenSettings, SettingsPanel};
+use crate::store::Store;
 
 /// The root view. It shows the library or one book.
 pub struct Shell {
@@ -86,6 +87,11 @@ impl Shell {
     fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(reader) = self.reader.take() {
             reader.update(cx, |reader, cx| reader.close(window, cx));
+            // The next start opens the library, not this book.
+            cx.update_global(|store: &mut Store, _| {
+                store.library.last_book = None;
+                store.save();
+            });
             self._reader_subscription = None;
             self.library.focus_handle(cx).focus(window, cx);
             cx.notify();

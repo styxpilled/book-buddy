@@ -1,6 +1,6 @@
 # 03: Reader margins and bars
 
-Status: needs-triage
+Status: done
 Spec: [../spec.md](../spec.md)
 Depends on: none
 

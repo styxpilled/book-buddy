@@ -766,6 +766,7 @@ dependencies = [
  "chrono",
  "ego-tree",
  "env_logger",
+ "fast_image_resize",
  "futures",
  "gpui-component-macros",
  "gpui-kit",
@@ -1916,6 +1917,20 @@ dependencies = [
  "rayon-core",
  "smallvec",
  "zune-inflate",
+]
+
+[[package]]
+name = "fast_image_resize"
+version = "5.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fbc7fe45cf92b43817ff62a3723e862b85bd1d06288f63007f7645d1d2f7a060"
+dependencies = [
+ "bytemuck",
+ "cfg-if",
+ "document-features",
+ "image",
+ "num-traits",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
