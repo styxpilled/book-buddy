@@ -9,6 +9,7 @@ mod shell;
 #[cfg(feature = "sim")]
 mod sim;
 mod store;
+mod style;
 
 use std::path::{self, PathBuf};
 
@@ -35,6 +36,7 @@ fn main() {
         .with_assets(gpui_kit::assets::Assets)
         .run(move |cx: &mut App| {
             gpui_kit::init(cx);
+            style::init(cx);
             reader::init(cx);
             cx.set_global(store);
             settings::init(cx);

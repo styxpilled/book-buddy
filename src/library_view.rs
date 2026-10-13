@@ -3,13 +3,15 @@ use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::Command;
 use std::rc::Rc;
+use std::sync::Arc;
 
+use book_buddy::dither::dither;
 use book_buddy::library::BookEntry;
 use gpui::{
     App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, InteractiveElement,
     IntoElement, ObjectFit, ParentElement, Render, SharedString, StatefulInteractiveElement,
     Styled, StyledImage, Subscription, WeakEntity, Window, div, image_cache, img, prelude::*, px,
-    uniform_list,
+    relative, uniform_list,
 };
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::checkbox::Checkbox;
@@ -18,14 +20,17 @@ use gpui_kit::component::menu::{ContextMenuExt, DropdownMenu, PopupMenuItem};
 use gpui_kit::component::{ActiveTheme, Sizable};
 
 use crate::Import;
-use crate::image_cache::BoundedImageCache;
+use crate::image_cache::{BoundedImageCache, Filter};
 use crate::scan::{COVER_HEIGHT, COVER_WIDTH};
 use crate::settings::OpenSettings;
 use crate::store::{Store, cover_path};
+use crate::style;
 
 const MARGIN: f32 = 32.;
-const GAP: f32 = 24.;
-const CARD_TEXT_HEIGHT: f32 = 76.;
+const GAP: f32 = 32.;
+const ROW_GAP: f32 = 26.;
+const CARD_TEXT_HEIGHT: f32 = 84.;
+const TITLE_LINE: f32 = 16.;
 const DECODED_COVERS: usize = 150;
 
 pub enum LibraryEvent {
@@ -45,10 +50,10 @@ impl Sort {
 
     fn label(self) -> &'static str {
         match self {
-            Sort::LastOpened => "Last opened",
-            Sort::Title => "Title",
-            Sort::Author => "Author",
-            Sort::Added => "Date added",
+            Sort::LastOpened => "LAST OPENED",
+            Sort::Title => "TITLE",
+            Sort::Author => "AUTHOR",
+            Sort::Added => "DATE ADDED",
         }
     }
 
@@ -69,6 +74,8 @@ pub struct LibraryView {
     sort: Sort,
     show_hidden: bool,
     covers: Entity<BoundedImageCache>,
+    /// The tones the covers are dithered to. They follow the theme.
+    tones: ([u8; 3], [u8; 3]),
     _subscriptions: Vec<Subscription>,
 }
 
@@ -82,8 +89,7 @@ impl Focusable for LibraryView {
 
 impl LibraryView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let filter =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Filter by title or author"));
+        let filter = cx.new(|cx| InputState::new(window, cx).placeholder("title or author"));
         let subscriptions = vec![
             cx.subscribe_in(&filter, window, |_, _, event: &InputEvent, _, cx| {
                 if matches!(event, InputEvent::Change) {
@@ -92,11 +98,13 @@ impl LibraryView {
             }),
             cx.observe_global::<Store>(|_, cx| cx.notify()),
         ];
+        let tones = style::tones(cx);
         Self {
             filter,
             sort: Sort::LastOpened,
             show_hidden: false,
-            covers: BoundedImageCache::new(DECODED_COVERS, cx),
+            covers: cover_cache(tones, cx),
+            tones,
             _subscriptions: subscriptions,
         }
     }
@@ -126,19 +134,27 @@ impl LibraryView {
         div()
             .flex()
             .items_center()
-            .gap_3()
+            .gap(px(20.))
             .px(px(MARGIN))
-            .py_3()
-            .border_b_1()
-            .border_color(cx.theme().border)
+            .pt(px(18.))
             .child(
                 div()
-                    .w(px(320.))
-                    .child(Input::new(&self.filter).cleanable(true)),
+                    .w(px(330.))
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .child(style::tag("FILTER", cx))
+                    .child(
+                        div()
+                            .flex_1()
+                            .border_b_1()
+                            .border_color(cx.theme().border)
+                            .child(Input::new(&self.filter).appearance(false).cleanable(true)),
+                    ),
             )
             .child(
                 Button::new("sort")
-                    .label(format!("Sort: {}", sort.label()))
+                    .label(format!("SORT = {}", sort.label()))
                     .ghost()
                     .small()
                     .dropdown_menu(move |mut menu, _, _| {
@@ -161,7 +177,7 @@ impl LibraryView {
             )
             .child(
                 Checkbox::new("show-hidden")
-                    .label("Show hidden")
+                    .label("SHOW HIDDEN")
                     .small()
                     .checked(self.show_hidden)
                     .on_click(cx.listener(|this, checked: &bool, _, cx| {
@@ -171,24 +187,30 @@ impl LibraryView {
             )
             .child(div().flex_1())
             .child(
-                Button::new("add")
-                    .label("Add books")
-                    .small()
+                style::button("add", "+ ADD BOOKS", true, cx)
                     .on_click(|_, window, cx| window.dispatch_action(Box::new(Import), cx)),
             )
             .child(
-                Button::new("settings")
-                    .label("Settings")
-                    .ghost()
-                    .small()
+                style::button("settings", "SETTINGS", false, cx)
                     .on_click(|_, window, cx| window.dispatch_action(Box::new(OpenSettings), cx)),
             )
     }
 }
 
+fn cover_cache((dark, light): ([u8; 3], [u8; 3]), cx: &mut App) -> Entity<BoundedImageCache> {
+    let filter: Filter = Arc::new(move |image| dither(&image, style::DITHER_CELL, dark, light));
+    BoundedImageCache::new(DECODED_COVERS, Some(filter), cx)
+}
+
 impl Render for LibraryView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let tones = style::tones(cx);
+        if tones != self.tones {
+            self.tones = tones;
+            self.covers = cover_cache(tones, cx);
+        }
         let books = Rc::new(self.visible_books(cx));
+        let count = books.len();
         let theme = cx.theme();
         let width = f32::from(window.viewport_size().width) - 2. * MARGIN;
         let columns = (((width + GAP) / (COVER_WIDTH as f32 + GAP)).floor() as usize).max(1);
@@ -223,7 +245,7 @@ impl Render for LibraryView {
                                     .flex()
                                     .gap(px(GAP))
                                     .px(px(MARGIN))
-                                    .pt(px(GAP))
+                                    .pt(px(ROW_GAP))
                                     .children(
                                         books[start..end]
                                             .iter()
@@ -237,13 +259,26 @@ impl Render for LibraryView {
                 .into_any_element()
         };
 
+        let head = div()
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .mx(px(MARGIN))
+            .mt(px(18.))
+            .child(style::tag("LIBRARY", cx))
+            .child(style::rule(cx))
+            .child(style::dot(format!("{count:02}"), 26.));
+
         div()
+            .relative()
             .size_full()
             .flex()
             .flex_col()
             .bg(theme.background)
             .text_color(theme.foreground)
+            .child(style::grid(cx))
             .child(self.render_toolbar(cx))
+            .child(head)
             .child(body)
     }
 }
@@ -252,18 +287,25 @@ fn card(book: &BookEntry, view: WeakEntity<LibraryView>, cx: &App) -> impl IntoE
     let theme = cx.theme();
     let store = cx.global::<Store>();
     let cover = cover_path(store.covers(), &book.id);
-    let status: SharedString = if book.missing {
-        "File missing".into()
+    let status = if book.missing {
+        style::tag("FILE MISSING", cx)
     } else if book.last_opened.is_none() {
-        "New".into()
+        style::tag("NEW", cx)
     } else {
-        format!("{:.0}%", book.percent).into()
+        div()
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .child(style::progress(book.percent, cx))
+            .child(style::dot(format!("{:.0}%", book.percent), 13.))
     };
 
     let cover = div()
+        .relative()
+        .flex_none()
         .w(px(COVER_WIDTH as f32))
         .h(px(COVER_HEIGHT as f32))
-        .rounded_md()
+        .mb(px(6.))
         .overflow_hidden()
         .border_1()
         .border_color(theme.border)
@@ -276,10 +318,20 @@ fn card(book: &BookEntry, view: WeakEntity<LibraryView>, cx: &App) -> impl IntoE
                     .flex()
                     .items_center()
                     .justify_center()
-                    .p_3()
-                    .text_center()
-                    .text_color(theme.muted_foreground)
-                    .child(book.title.clone())
+                    .p(px(10.))
+                    .child(style::cross(style::faint(cx)))
+                    .child(
+                        div()
+                            .relative()
+                            .p(px(6.))
+                            .border_1()
+                            .border_color(theme.border)
+                            .bg(theme.muted)
+                            .text_size(px(10.))
+                            .line_height(relative(1.3))
+                            .text_center()
+                            .child(book.title.to_uppercase()),
+                    )
             }
         });
 
@@ -293,29 +345,33 @@ fn card(book: &BookEntry, view: WeakEntity<LibraryView>, cx: &App) -> impl IntoE
         .h(px(COVER_HEIGHT as f32 + CARD_TEXT_HEIGHT))
         .flex()
         .flex_col()
-        .gap_1()
-        .when(missing || hidden, |card| card.opacity(0.45))
+        .gap(px(2.))
+        .when(missing || hidden, |card| card.opacity(0.42))
         .when(!missing, |card| card.cursor_pointer())
         .child(cover)
         .child(
             div()
-                .text_sm()
-                .font_weight(gpui::FontWeight::SEMIBOLD)
-                .line_clamp(2)
+                .text_size(px(12.))
+                .line_height(px(TITLE_LINE))
+                .max_h(px(2. * TITLE_LINE))
+                .overflow_hidden()
                 .child(book.title.clone()),
         )
         .child(
             div()
-                .text_xs()
+                .text_size(px(11.))
                 .text_color(theme.muted_foreground)
                 .truncate()
                 .child(book.author.clone()),
         )
         .child(
             div()
-                .text_xs()
-                .text_color(theme.muted_foreground)
-                .child(status),
+                .mt(px(3.))
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .child(status)
+                .when(hidden, |row| row.child(style::tag("HIDDEN", cx))),
         )
         .on_click({
             let view = view.clone();
@@ -332,7 +388,7 @@ fn card(book: &BookEntry, view: WeakEntity<LibraryView>, cx: &App) -> impl IntoE
             let remove_id = id.clone();
             let shown = path.clone();
             menu.item(
-                PopupMenuItem::new(if hidden { "Unhide" } else { "Hide" }).on_click(
+                PopupMenuItem::new(if hidden { "UNHIDE" } else { "HIDE" }).on_click(
                     move |_, _, cx| {
                         cx.update_global(|store: &mut Store, _| {
                             if let Some(book) = store.library.book_mut(&hide_id) {
@@ -344,7 +400,7 @@ fn card(book: &BookEntry, view: WeakEntity<LibraryView>, cx: &App) -> impl IntoE
                 ),
             )
             .item(
-                PopupMenuItem::new("Remove from library").on_click(move |_, _, cx| {
+                PopupMenuItem::new("REMOVE FROM LIBRARY").on_click(move |_, _, cx| {
                     cx.update_global(|store: &mut Store, _| {
                         if let Some(removed) = store.library.remove(&remove_id) {
                             std::fs::remove_file(cover_path(store.covers(), &removed.id)).ok();
@@ -354,7 +410,7 @@ fn card(book: &BookEntry, view: WeakEntity<LibraryView>, cx: &App) -> impl IntoE
                 }),
             )
             .item(
-                PopupMenuItem::new("Show in Explorer")
+                PopupMenuItem::new("SHOW IN EXPLORER")
                     .disabled(missing)
                     .on_click(move |_, _, _| {
                         let select = format!("/select,\"{}\"", shown.display());

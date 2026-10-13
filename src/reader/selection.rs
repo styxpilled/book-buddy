@@ -34,7 +34,8 @@ impl Reader {
         let item = &self.items[ix];
         let search = self.search.marked(ix).map(|range| {
             let style = HighlightStyle {
-                background_color: Some(theme.warning.opacity(0.35)),
+                color: Some(theme.background),
+                background_color: Some(theme.foreground),
                 ..Default::default()
             };
             (range, style)

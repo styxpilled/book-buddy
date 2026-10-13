@@ -1,4 +1,5 @@
 use std::collections::{HashMap, VecDeque};
+use std::path::Path;
 use std::sync::Arc;
 
 use futures::FutureExt;
@@ -6,6 +7,10 @@ use gpui::{
     App, AppContext, Asset, Entity, ImageAssetLoader, ImageCache, ImageCacheError, ImageCacheItem,
     RenderImage, Resource, Window, hash,
 };
+use image::{Frame, RgbaImage};
+
+/// Changes an image from a file before it is shown.
+pub type Filter = Arc<dyn Fn(RgbaImage) -> RgbaImage + Send + Sync>;
 
 /// GPUI keeps a decoded image until it is dropped. This cache drops the least
 /// recently used image when it holds more than `capacity`.
@@ -13,14 +18,16 @@ pub struct BoundedImageCache {
     items: HashMap<u64, ImageCacheItem>,
     order: VecDeque<u64>,
     capacity: usize,
+    filter: Option<Filter>,
 }
 
 impl BoundedImageCache {
-    pub fn new(capacity: usize, cx: &mut App) -> Entity<Self> {
+    pub fn new(capacity: usize, filter: Option<Filter>, cx: &mut App) -> Entity<Self> {
         let cache = cx.new(|_| Self {
             items: HashMap::new(),
             order: VecDeque::new(),
             capacity,
+            filter,
         });
         cx.observe_release(&cache, |cache, cx| {
             for (_, mut item) in cache.items.drain() {
@@ -50,8 +57,15 @@ impl ImageCache for BoundedImageCache {
             return item.get();
         }
 
-        let load = <ImageAssetLoader as Asset>::load(resource.clone(), cx);
-        let task = cx.background_executor().spawn(load).shared();
+        let executor = cx.background_executor().clone();
+        let task = match (&self.filter, resource) {
+            (Some(filter), Resource::Path(path)) => {
+                let (filter, path) = (filter.clone(), path.clone());
+                executor.spawn(async move { load_filtered(&path, &*filter) })
+            }
+            _ => executor.spawn(<ImageAssetLoader as Asset>::load(resource.clone(), cx)),
+        }
+        .shared();
         self.items
             .insert(key, ImageCacheItem::Loading(task.clone()));
         self.order.push_back(key);
@@ -75,4 +89,19 @@ impl ImageCache for BoundedImageCache {
         }
         None
     }
+}
+
+fn load_filtered(
+    path: &Path,
+    filter: &(dyn Fn(RgbaImage) -> RgbaImage + Send + Sync),
+) -> Result<Arc<RenderImage>, ImageCacheError> {
+    let bytes = std::fs::read(path).map_err(|e| ImageCacheError::Io(Arc::new(e)))?;
+    let image =
+        image::load_from_memory(&bytes).map_err(|e| ImageCacheError::Other(Arc::new(e.into())))?;
+    let mut pixels = filter(image.into_rgba8());
+    // RenderImage is BGRA.
+    for pixel in pixels.pixels_mut() {
+        pixel.0.swap(0, 2);
+    }
+    Ok(Arc::new(RenderImage::new(vec![Frame::new(pixels)])))
 }

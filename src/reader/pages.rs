@@ -7,6 +7,7 @@ use gpui::{
     AnyElement, AvailableSpace, Context, InteractiveElement, IntoElement, ParentElement,
     ScrollDelta, ScrollWheelEvent, Styled, Window, div, px, size,
 };
+use gpui_kit::component::ActiveTheme;
 
 use super::{BOTTOM_BAR_HEIGHT, COLUMN_WIDTH, MARGIN, QUOTE_GAP, Reader};
 
@@ -441,6 +442,15 @@ impl Reader {
                     );
                 }
             }
+            if side > 0 {
+                columns.push(
+                    div()
+                        .flex_none()
+                        .w(px(1.))
+                        .h(px(geometry.height))
+                        .bg(cx.theme().border),
+                );
+            }
             columns.push(column);
         }
         let element = div()
@@ -448,7 +458,7 @@ impl Reader {
             .size_full()
             .flex()
             .justify_center()
-            .gap(px(2. * MARGIN))
+            .gap(px(MARGIN - 0.5))
             .pt(px(MARGIN))
             .pr(px(geometry.panel))
             .on_scroll_wheel(cx.listener(Self::wheel))

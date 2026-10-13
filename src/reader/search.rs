@@ -14,11 +14,12 @@ use gpui_kit::component::ActiveTheme;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 
 use crate::Back;
+use crate::style;
 
-use super::{Adjust, NextMatch, OpenSearch, PreviousMatch, Reader};
+use super::{Adjust, NextMatch, OpenSearch, PreviousMatch, Reader, SANS};
 
 pub(super) const PANEL_WIDTH: f32 = 340.;
-const ROW_HEIGHT: f32 = 56.;
+const ROW_HEIGHT: f32 = 52.;
 const MAX_RESULTS: usize = 10_000;
 const DEBOUNCE: Duration = Duration::from_millis(150);
 /// Characters of context before and after a match in the results.
@@ -63,7 +64,7 @@ impl Reader {
         let input = match &self.search.input {
             Some(input) => input.clone(),
             None => {
-                let input = cx.new(|cx| InputState::new(window, cx).placeholder("Search"));
+                let input = cx.new(|cx| InputState::new(window, cx).placeholder("text"));
                 self.search._subscription = Some(cx.subscribe_in(
                     &input,
                     window,
@@ -192,67 +193,94 @@ impl Reader {
     pub(super) fn render_search(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let count = self.search.results.len();
-        let status = match count {
-            0 => "No matches".to_string(),
-            1 => "1 match".to_string(),
-            _ if self.search.truncated => format!("First {count} matches"),
-            _ => format!("{count} matches"),
+        let current = self.search.current;
+        let number = match current {
+            Some(ix) => format!("{:02}/{count:02}", ix + 1),
+            None => format!("{count:02}"),
+        };
+        let number = if self.search.truncated {
+            format!("{number}+")
+        } else {
+            number
+        };
+        let label = match count {
+            0 => "NO MATCHES",
+            1 => "MATCH",
+            _ => "MATCHES",
         };
         let query_empty = self
             .search
             .input
             .as_ref()
             .is_none_or(|input| input.read(cx).value().trim().is_empty());
-        let current = self.search.current;
-        let list = uniform_list(
-            "search-results",
-            count,
-            cx.processor(move |reader, range: Range<usize>, _, cx| {
-                let theme = cx.theme();
-                let (active, hover, muted) =
-                    (theme.list_active, theme.list_hover, theme.muted_foreground);
-                range
-                    .map(|ix| {
-                        let found = &reader.search.results[ix];
-                        let item = &reader.items[found.item];
-                        let chapter = reader
-                            .toc_at(Position {
-                                spine: item.spine,
-                                offset: item.block.offset,
-                            })
-                            .and_then(|toc| Some(reader.book.as_ref()?.toc[toc].label.clone()))
-                            .unwrap_or_else(|| format!("Part {}", item.spine + 1));
-                        let (text, mark) = snippet(&item.text, found.range.clone());
-                        let bold = HighlightStyle {
-                            font_weight: Some(FontWeight::BOLD),
-                            ..Default::default()
-                        };
-                        div()
-                            .id(ix)
-                            .w_full()
-                            .h(px(ROW_HEIGHT))
-                            .px(px(16.))
-                            .flex()
-                            .flex_col()
-                            .justify_center()
-                            .cursor_pointer()
-                            .hover(move |row| row.bg(hover))
-                            .when(Some(ix) == current, |row| row.bg(active))
-                            .child(div().text_xs().text_color(muted).truncate().child(chapter))
-                            .child(
-                                div()
-                                    .truncate()
-                                    .child(StyledText::new(text).with_highlights([(mark, bold)])),
-                            )
-                            .on_click(
-                                cx.listener(move |reader, _, _, cx| reader.show_match(ix, cx)),
-                            )
-                    })
-                    .collect()
-            }),
-        )
-        .track_scroll(&self.search.scroll)
-        .flex_1();
+        let list =
+            uniform_list(
+                "search-results",
+                count,
+                cx.processor(move |reader, range: Range<usize>, _, cx| {
+                    let theme = cx.theme();
+                    let (ink, paper, hover, muted) = (
+                        theme.foreground,
+                        theme.background,
+                        theme.list_hover,
+                        theme.muted_foreground,
+                    );
+                    let hairline = style::hairline(cx);
+                    range
+                        .map(|ix| {
+                            let found = &reader.search.results[ix];
+                            let item = &reader.items[found.item];
+                            let chapter = reader
+                                .toc_at(Position {
+                                    spine: item.spine,
+                                    offset: item.block.offset,
+                                })
+                                .and_then(|toc| Some(reader.book.as_ref()?.toc[toc].label.clone()))
+                                .unwrap_or_else(|| format!("Part {}", item.spine + 1));
+                            let (text, mark) = snippet(&item.text, found.range.clone());
+                            let bold = HighlightStyle {
+                                font_weight: Some(FontWeight::BOLD),
+                                ..Default::default()
+                            };
+                            let is_current = Some(ix) == current;
+                            div()
+                                .id(ix)
+                                .w_full()
+                                .h(px(ROW_HEIGHT))
+                                .px(px(16.))
+                                .flex()
+                                .flex_col()
+                                .justify_center()
+                                .border_b_1()
+                                .border_color(hairline)
+                                .cursor_pointer()
+                                .when(!is_current, |row| row.hover(move |row| row.bg(hover)))
+                                .when(is_current, |row| row.bg(ink).text_color(paper))
+                                .child(
+                                    div()
+                                        .text_size(px(10.))
+                                        .text_color(if is_current {
+                                            paper.opacity(0.6)
+                                        } else {
+                                            muted
+                                        })
+                                        .truncate()
+                                        .child(chapter.to_uppercase()),
+                                )
+                                .child(
+                                    div().font_family(SANS).text_size(px(13.)).truncate().child(
+                                        StyledText::new(text).with_highlights([(mark, bold)]),
+                                    ),
+                                )
+                                .on_click(
+                                    cx.listener(move |reader, _, _, cx| reader.show_match(ix, cx)),
+                                )
+                        })
+                        .collect()
+                }),
+            )
+            .track_scroll(&self.search.scroll)
+            .flex_1();
 
         div()
             .key_context("Search")
@@ -273,20 +301,44 @@ impl Reader {
             .border_l_1()
             .border_color(theme.border)
             .occlude()
-            .children(
-                self.search
-                    .input
-                    .as_ref()
-                    .map(|input| div().p(px(12.)).child(Input::new(input).cleanable(true))),
+            .child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .bottom_0()
+                    .left(px(-6.))
+                    .w(px(1.))
+                    .bg(theme.success),
             )
+            .children(self.search.input.as_ref().map(|input| {
+                div()
+                    .mx(px(16.))
+                    .mt(px(18.))
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .child(style::tag("QUERY", cx))
+                    .child(
+                        div()
+                            .flex_1()
+                            .border_b_1()
+                            .border_color(theme.border)
+                            .child(Input::new(input).appearance(false).cleanable(true)),
+                    )
+            }))
             .when(!query_empty, |panel| {
                 panel.child(
                     div()
                         .px(px(16.))
-                        .pb(px(8.))
-                        .text_xs()
-                        .text_color(theme.muted_foreground)
-                        .child(status),
+                        .pt(px(14.))
+                        .pb(px(10.))
+                        .flex()
+                        .items_end()
+                        .gap(px(8.))
+                        .border_b_1()
+                        .border_color(theme.border)
+                        .child(style::dot(number, 28.))
+                        .child(style::label(label, cx)),
                 )
             })
             .child(list)

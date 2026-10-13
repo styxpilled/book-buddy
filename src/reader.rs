@@ -11,16 +11,15 @@ use book_buddy::book::{Block, BlockKind, Book, Chapter, Marker, Run};
 use book_buddy::library::{FileInfo, Font, Mode, Position};
 use chrono::Utc;
 use gpui::{
-    AnyElement, App, AppContext, BorrowAppContext, Context, Entity, EventEmitter, FocusHandle,
-    Focusable, FontStyle, FontWeight, HighlightStyle, Hsla, InteractiveElement, IntoElement,
-    KeyBinding, ListAlignment, ListOffset, ListState, MouseButton, MouseMoveEvent, ParentElement,
-    Render, RenderImage, ScrollStrategy, SharedString, StatefulInteractiveElement, Styled,
-    StyledText, Subscription, Task, UnderlineStyle, UniformListScrollHandle, Window, actions,
-    combine_highlights, div, img, list, prelude::FluentBuilder, px, relative, uniform_list,
+    AnyElement, App, AppContext, BorderStyle, BorrowAppContext, Bounds, Context, DispatchPhase,
+    Entity, EventEmitter, FocusHandle, Focusable, FontStyle, FontWeight, HighlightStyle, Hsla,
+    InteractiveElement, IntoElement, KeyBinding, ListAlignment, ListOffset, ListState, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Render, RenderImage,
+    ScrollStrategy, SharedString, StatefulInteractiveElement, Styled, StyledText, Subscription,
+    Task, UnderlineStyle, UniformListScrollHandle, Window, actions, canvas, combine_highlights,
+    div, fill, img, list, outline, point, prelude::FluentBuilder, px, relative, size, uniform_list,
 };
-use gpui_kit::component::button::{Button, ButtonVariants};
-use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
-use gpui_kit::component::{ActiveTheme, Sizable, Theme};
+use gpui_kit::component::{ActiveTheme, Theme};
 use image::imageops::FilterType;
 use image::{Frame, ImageReader};
 
@@ -32,6 +31,7 @@ use crate::Back;
 use crate::scan;
 use crate::settings::OpenSettings;
 use crate::store::Store;
+use crate::style;
 use pages::Pages;
 use search::Search;
 use selection::Selection;
@@ -55,8 +55,10 @@ const SAVE_DELAY: Duration = Duration::from_secs(1);
 const TOP_BAR_HEIGHT: f32 = 40.;
 /// The top bar shows when the pointer is this close to the top of the window.
 const TOP_EDGE: f32 = 12.;
-const BOTTOM_BAR_HEIGHT: f32 = 36.;
-const TOC_WIDTH: f32 = 320.;
+const BOTTOM_BAR_HEIGHT: f32 = 38.;
+const TOC_WIDTH: f32 = 330.;
+/// Distance between the dots of the seek bar.
+const SEEK_STEP: f32 = 6.;
 const TOC_ROW_HEIGHT: f32 = 30.;
 
 actions!(
@@ -278,8 +280,7 @@ pub struct Reader {
     /// The list corrects a scroll past the end in its layout, after the render.
     /// One more frame shows the corrected position in the bars.
     redraw: bool,
-    seek: Entity<SliderState>,
-    /// The seek bar is dragged, so it does not follow the position.
+    /// The left button went down on the seek bar and is not up yet.
     seeking: bool,
     font: Font,
     font_size: f32,
@@ -308,18 +309,10 @@ impl Reader {
         list.set_scroll_handler(move |_, _, cx| {
             this.update(cx, |reader, cx| reader.scrolled(cx)).ok();
         });
-        let seek = cx.new(|_| SliderState::new().min(0.).max(100.).step(0.01));
         let subscriptions = vec![
             cx.on_app_quit(|reader, cx| {
                 reader.save_position(cx);
                 async {}
-            }),
-            cx.subscribe(&seek, |reader, _, event: &SliderEvent, cx| match event {
-                SliderEvent::Change(value) => {
-                    reader.seeking = true;
-                    reader.seek_to(value.end(), cx);
-                }
-                SliderEvent::Release(_) => reader.seeking = false,
             }),
             cx.observe_global::<Store>(|reader, cx| reader.apply_settings(cx)),
         ];
@@ -348,7 +341,6 @@ impl Reader {
             toc_scroll: UniformListScrollHandle::new(),
             top_bar: false,
             redraw: false,
-            seek,
             seeking: false,
             font,
             font_size,
@@ -1075,7 +1067,7 @@ impl Reader {
                 .ml(px(font_size * (item.block.quote as f32 - 1.)))
                 .mb(px(font_size * QUOTE_GAP))
                 .pl(px(font_size))
-                .border_l_2()
+                .border_l_1()
                 .border_color(theme.border)
                 .child(content);
         }
@@ -1158,10 +1150,10 @@ fn decode_image(bytes: &[u8]) -> Option<Arc<RenderImage>> {
 impl Reader {
     fn render_top_bar(&self, cx: &App) -> impl IntoElement {
         let theme = cx.theme();
-        let title = self.book.as_ref().map(|book| book.title.clone());
+        let title = self.book.as_ref().map(|book| book.title.to_uppercase());
         let chapter = self
             .current_toc()
-            .and_then(|ix| Some(self.book.as_ref()?.toc[ix].label.clone()));
+            .and_then(|ix| Some(self.book.as_ref()?.toc[ix].label.to_uppercase()));
         div()
             .absolute()
             .top_0()
@@ -1172,26 +1164,30 @@ impl Reader {
             .flex()
             .items_center()
             .gap_3()
+            .text_size(px(11.))
             .bg(theme.background)
             .border_b_1()
             .border_color(theme.border)
             .occlude()
+            .child(style::tag("ESC", cx))
             .children(title.map(|title| {
                 div()
                     .flex_none()
-                    .font_weight(FontWeight::SEMIBOLD)
+                    .font_weight(FontWeight::MEDIUM)
                     .child(title)
             }))
             .children(chapter.map(|chapter| {
                 div()
+                    .flex()
                     .min_w_0()
-                    .truncate()
+                    .gap_3()
                     .text_color(theme.muted_foreground)
-                    .child(chapter)
+                    .child("//")
+                    .child(div().min_w_0().truncate().child(chapter))
             }))
     }
 
-    fn render_bottom_bar(&self, cx: &App) -> impl IntoElement {
+    fn render_bottom_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let percent = self.position().and_then(|position| self.percent(position));
         div()
@@ -1201,36 +1197,100 @@ impl Reader {
             .flex()
             .items_center()
             .gap_4()
+            .bg(theme.background)
             .border_t_1()
             .border_color(theme.border)
+            .child(self.render_seek(percent, cx))
             .child(
-                div()
-                    .flex_1()
-                    .child(Slider::new(&self.seek).disabled(percent.is_none())),
+                style::dot(
+                    percent.map_or(SharedString::default(), |p| format!("{p:.0}%").into()),
+                    16.,
+                )
+                .w(px(44.))
+                .text_right(),
             )
             .child(
-                div()
-                    .w(px(40.))
-                    .text_right()
-                    .text_color(theme.muted_foreground)
-                    .children(percent.map(|percent| format!("{percent:.0}%"))),
-            )
-            .child(
-                Button::new("settings")
-                    .label("Settings")
-                    .ghost()
-                    .xsmall()
+                style::button("settings", "SETTINGS", false, cx)
+                    .h(px(20.))
                     .on_click(|_, window, cx| window.dispatch_action(Box::new(OpenSettings), cx)),
             )
+    }
+
+    /// A row of dots, filled up to the percent, with a marker at the percent.
+    /// Without a percent, it is empty and does nothing.
+    fn render_seek(&self, percent: Option<f32>, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let (ink, paper, accent, faint) = (
+            theme.foreground,
+            theme.background,
+            theme.success,
+            style::faint(cx),
+        );
+        let view = cx.entity();
+        let paint = move |bounds: Bounds<Pixels>, _, window: &mut Window, _: &mut App| {
+            let mid = bounds.center().y;
+            let at = bounds.left() + bounds.size.width * percent.unwrap_or(0.) / 100.;
+            let mut x = bounds.left() + px(1.5);
+            while x < bounds.right() {
+                let on = percent.is_some() && x <= at;
+                let side = px(if on { 3. } else { 2. });
+                let dot = Bounds::new(point(x - side / 2., mid - side / 2.), size(side, side));
+                window.paint_quad(fill(dot, if on { ink } else { faint }));
+                x += px(SEEK_STEP);
+            }
+            if percent.is_none() {
+                return;
+            }
+            let line = Bounds::new(point(at, mid - px(5.)), size(px(1.), px(14.)));
+            window.paint_quad(fill(line, accent));
+            let head = Bounds::new(point(at - px(3.), mid - px(10.)), size(px(7.), px(7.)));
+            window.paint_quad(fill(head, paper));
+            window.paint_quad(outline(head, accent, BorderStyle::Solid));
+
+            let to_percent =
+                move |x: Pixels| ((x - bounds.left()) / bounds.size.width * 100.).clamp(0., 100.);
+            window.on_mouse_event({
+                let view = view.clone();
+                move |event: &MouseDownEvent, phase, _, cx| {
+                    if phase == DispatchPhase::Bubble
+                        && event.button == MouseButton::Left
+                        && bounds.contains(&event.position)
+                    {
+                        view.update(cx, |reader, cx| {
+                            reader.seeking = true;
+                            reader.seek_to(to_percent(event.position.x), cx);
+                        });
+                    }
+                }
+            });
+            window.on_mouse_event({
+                let view = view.clone();
+                move |event: &MouseMoveEvent, phase, _, cx| {
+                    if phase == DispatchPhase::Bubble && event.dragging() && view.read(cx).seeking {
+                        view.update(cx, |reader, cx| {
+                            reader.seek_to(to_percent(event.position.x), cx)
+                        });
+                    }
+                }
+            });
+            window.on_mouse_event(move |_: &MouseUpEvent, phase, _, cx| {
+                if phase == DispatchPhase::Bubble {
+                    view.update(cx, |reader, _| reader.seeking = false);
+                }
+            });
+        };
+        div()
+            .flex_1()
+            .h(px(22.))
+            .when(percent.is_some(), |seek| seek.cursor_pointer())
+            .child(canvas(|_, _, _| (), paint).size_full())
     }
 
     fn render_toc(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let body = if self.toc.is_empty() {
-            div()
-                .p(px(16.))
-                .text_color(theme.muted_foreground)
-                .child("This book has no table of contents.")
+            style::label("THIS BOOK HAS NO TABLE OF CONTENTS.", cx)
+                .px(px(18.))
                 .into_any_element()
         } else {
             let current = self.current_toc();
@@ -1242,30 +1302,37 @@ impl Reader {
                         return Vec::new();
                     };
                     let theme = cx.theme();
-                    let (active, hover, muted) =
-                        (theme.list_active, theme.list_hover, theme.muted_foreground);
+                    let (ink, paper, hover) =
+                        (theme.foreground, theme.background, theme.list_hover);
+                    let faint = style::faint(cx);
                     range
                         .map(|ix| {
                             let entry = &book.toc[ix];
+                            let is_current = Some(ix) == current;
                             div()
                                 .id(ix)
                                 .w_full()
                                 .h(px(TOC_ROW_HEIGHT))
-                                .pl(px(16. + 16. * entry.depth as f32))
-                                .pr(px(16.))
+                                .pl(px(18. + 16. * entry.depth as f32))
+                                .pr(px(18.))
                                 .flex()
                                 .items_center()
+                                .gap(px(12.))
+                                .text_size(px(12.))
+                                .child(style::dot(format!("{:02}", ix + 1), 13.).w(px(18.)))
                                 .child(div().min_w_0().truncate().child(entry.label.clone()))
-                                .when(Some(ix) == current, |row| row.bg(active))
+                                .when(is_current, |row| row.bg(ink).text_color(paper))
                                 .map(|row| {
                                     if reader.toc[ix].is_some() {
                                         row.cursor_pointer()
-                                            .hover(move |row| row.bg(hover))
+                                            .when(!is_current, |row| {
+                                                row.hover(move |row| row.bg(hover))
+                                            })
                                             .on_click(cx.listener(move |reader, _, _, cx| {
                                                 reader.open_toc_entry(ix, cx)
                                             }))
                                     } else {
-                                        row.text_color(muted)
+                                        row.text_color(faint)
                                     }
                                 })
                         })
@@ -1284,11 +1351,31 @@ impl Reader {
             .w(px(TOC_WIDTH))
             .flex()
             .flex_col()
-            .py_2()
+            .py(px(18.))
             .bg(theme.background)
             .border_r_1()
             .border_color(theme.border)
             .occlude()
+            .child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .bottom_0()
+                    .right(px(-6.))
+                    .w(px(1.))
+                    .bg(theme.success),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .px(px(18.))
+                    .pb(px(12.))
+                    .child(style::tag("CONTENTS", cx))
+                    .child(style::rule(cx))
+                    .child(style::tag("T", cx)),
+            )
             .child(body)
     }
 }
@@ -1335,14 +1422,6 @@ impl Render for Reader {
         } else {
             None
         };
-        if !self.seeking
-            && let Some(percent) = self.position().and_then(|p| self.percent(p))
-            && (self.seek.read(cx).value().end() - percent).abs() > 0.01
-        {
-            self.seek
-                .update(cx, |seek, cx| seek.set_value(percent, window, cx));
-        }
-
         let theme = cx.theme();
         let message = |text: SharedString| {
             div()

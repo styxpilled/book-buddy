@@ -1,17 +1,18 @@
 use book_buddy::library::{FONT_SIZES, Font, Mode, Settings, Theme};
 use gpui::{
-    App, BorrowAppContext, Context, EventEmitter, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, KeyBinding, ParentElement, PathPromptOptions, Render, SharedString,
-    StatefulInteractiveElement, Styled, Subscription, Window, actions, div, px,
+    App, BorrowAppContext, Context, Div, EventEmitter, FocusHandle, Focusable, InteractiveElement,
+    IntoElement, KeyBinding, ParentElement, PathPromptOptions, Render, SharedString, Stateful,
+    StatefulInteractiveElement, Styled, Subscription, Window, actions, div, prelude::FluentBuilder,
+    px,
 };
-use gpui_kit::component::button::{Button, ButtonGroup, ButtonVariants};
-use gpui_kit::component::{ActiveTheme, Disableable, Selectable, Sizable, ThemeMode};
+use gpui_kit::component::{ActiveTheme, ThemeMode};
 
 use crate::Back;
 use crate::scan;
 use crate::store::Store;
+use crate::style;
 
-const PANEL_WIDTH: f32 = 480.;
+const PANEL_WIDTH: f32 = 500.;
 const LABEL_WIDTH: f32 = 110.;
 
 actions!(settings, [OpenSettings, FontLarger, FontSmaller]);
@@ -112,41 +113,46 @@ impl SettingsPanel {
     }
 }
 
-/// One button for each choice. The button of the current value is selected.
+/// One button for each choice. The button of the current value is filled.
 fn choice<T: Copy + PartialEq + 'static>(
     id: &'static str,
     current: T,
     options: &[(T, &'static str, bool)],
     set: fn(&mut Settings, T),
-) -> ButtonGroup {
-    let values: Vec<T> = options.iter().map(|(value, ..)| *value).collect();
-    ButtonGroup::new(id)
-        .outline()
-        .small()
-        .children(
-            options
-                .iter()
-                .enumerate()
-                .map(|(ix, (value, label, enabled))| {
-                    Button::new(ix)
-                        .label(*label)
-                        .selected(*value == current)
-                        .disabled(!enabled)
-                }),
-        )
-        .on_click(move |clicked: &Vec<usize>, _, cx| {
-            if let Some(&value) = clicked.first().and_then(|&ix| values.get(ix)) {
-                change(cx, |settings| set(settings, value));
-            }
-        })
+    cx: &App,
+) -> impl IntoElement {
+    div().flex().children(
+        options
+            .iter()
+            .enumerate()
+            .map(move |(ix, &(value, label, enabled))| {
+                let button = style::button((id, ix), label, value == current, cx)
+                    // The borders of neighbours overlap.
+                    .when(ix > 0, |button| button.ml(px(-1.)));
+                enabled_button(button, enabled, move |cx| change(cx, |s| set(s, value)))
+            }),
+    )
 }
 
-fn row(label: &'static str, control: impl IntoElement) -> impl IntoElement {
+/// A disabled button is faded and does nothing.
+fn enabled_button(
+    button: Stateful<Div>,
+    enabled: bool,
+    on_click: impl Fn(&mut App) + 'static,
+) -> Stateful<Div> {
+    if enabled {
+        button.on_click(move |_, _, cx| on_click(cx))
+    } else {
+        button.opacity(0.45).cursor_default()
+    }
+}
+
+fn row(label: &'static str, control: impl IntoElement, cx: &App) -> impl IntoElement {
     div()
         .flex()
         .items_center()
         .gap_3()
-        .child(div().flex_none().w(px(LABEL_WIDTH)).child(label))
+        .child(style::label(label, cx).flex_none().w(px(LABEL_WIDTH)))
         .child(control)
 }
 
@@ -160,48 +166,39 @@ impl Render for SettingsPanel {
         let size = div()
             .flex()
             .items_center()
-            .gap_2()
+            .gap(px(10.))
+            .child(enabled_button(
+                style::button("smaller", "-", false, cx),
+                settings.font_size > *FONT_SIZES.start(),
+                |cx| change(cx, |s| s.font_size -= 1),
+            ))
             .child(
-                Button::new("smaller")
-                    .label("-")
-                    .outline()
-                    .small()
-                    .disabled(settings.font_size <= *FONT_SIZES.start())
-                    .on_click(|_, _, cx| change(cx, |s| s.font_size -= 1)),
+                style::dot(settings.font_size.to_string(), 20.)
+                    .w(px(28.))
+                    .text_center(),
             )
-            .child(
-                div()
-                    .w(px(32.))
-                    .text_center()
-                    .child(settings.font_size.to_string()),
-            )
-            .child(
-                Button::new("larger")
-                    .label("+")
-                    .outline()
-                    .small()
-                    .disabled(settings.font_size >= *FONT_SIZES.end())
-                    .on_click(|_, _, cx| change(cx, |s| s.font_size += 1)),
-            )
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(theme.muted_foreground)
-                    .child("Ctrl+= / Ctrl+-"),
-            );
+            .child(enabled_button(
+                style::button("larger", "+", false, cx),
+                settings.font_size < *FONT_SIZES.end(),
+                |cx| change(cx, |s| s.font_size += 1),
+            ))
+            .child(style::label("CTRL+= / CTRL+-", cx));
 
+        let hairline = style::hairline(cx);
         let folder_rows = folders.into_iter().enumerate().map(|(ix, folder)| {
             let shown: SharedString = folder.display().to_string().into();
             div()
+                .h(px(30.))
                 .flex()
                 .items_center()
-                .gap_2()
+                .gap(px(10.))
+                .border_b_1()
+                .border_color(hairline)
+                .child(style::dot(format!("{:02}", ix + 1), 12.).text_color(theme.muted_foreground))
                 .child(div().flex_1().min_w_0().truncate().child(shown))
                 .child(
-                    Button::new(("remove-folder", ix))
-                        .label("Remove")
-                        .ghost()
-                        .small()
+                    style::button(("remove-folder", ix), "REMOVE", false, cx)
+                        .h(px(20.))
                         .on_click(move |_, _, cx| {
                             cx.update_global(|store: &mut Store, _| {
                                 store.library.folders.retain(|f| *f != folder);
@@ -214,85 +211,81 @@ impl Render for SettingsPanel {
             .flex()
             .flex_col()
             .gap_2()
-            .child(
-                div()
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .child("Watched folders"),
-            )
+            .child(style::label("WATCHED FOLDERS", cx))
             .children(folder_rows)
             .child(
-                div().flex().child(
-                    Button::new("add-folder")
-                        .label("Add folder")
-                        .small()
+                div().flex().pt(px(4.)).child(
+                    style::button("add-folder", "+ ADD FOLDER", false, cx)
                         .on_click(cx.listener(|panel, _, _, cx| panel.add_folder(cx))),
                 ),
             );
 
         let panel = div()
             .id("settings-panel")
+            .relative()
             .w(px(PANEL_WIDTH))
             .max_w_full()
             .flex()
             .flex_col()
-            .gap_4()
-            .p_5()
-            .rounded_lg()
+            .gap(px(14.))
+            .pt(px(22.))
+            .px(px(24.))
+            .pb(px(20.))
             .border_1()
             .border_color(theme.border)
             .bg(theme.popover)
             .text_color(theme.popover_foreground)
             .occlude()
             .on_click(|_, _, cx| cx.stop_propagation())
+            .children(style::crop_marks(cx))
             .child(
                 div()
                     .flex()
                     .items_center()
+                    .gap(px(10.))
+                    .child(style::tag_inverted("SETTINGS", cx))
+                    .child(style::rule(cx))
                     .child(
-                        div()
-                            .flex_1()
-                            .text_lg()
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .child("Settings"),
-                    )
-                    .child(
-                        Button::new("close-settings")
-                            .label("Close")
-                            .ghost()
-                            .small()
+                        style::button("close-settings", "ESC", false, cx)
                             .on_click(cx.listener(|_, _, _, cx| cx.emit(CloseSettings))),
                     ),
             )
             .child(row(
-                "Theme",
+                "THEME =",
                 choice(
                     "theme",
                     settings.theme,
-                    &[(Theme::Light, "Light", true), (Theme::Dark, "Dark", true)],
+                    &[(Theme::Light, "LIGHT", true), (Theme::Dark, "DARK", true)],
                     |s, v| s.theme = v,
+                    cx,
                 ),
+                cx,
             ))
             .child(row(
-                "Font",
+                "FONT =",
                 choice(
                     "font",
                     settings.font,
-                    &[(Font::Serif, "Serif", true), (Font::Sans, "Sans", true)],
+                    &[(Font::Serif, "SERIF", true), (Font::Sans, "SANS", true)],
                     |s, v| s.font = v,
+                    cx,
                 ),
+                cx,
             ))
-            .child(row("Font size", size))
+            .child(row("FONT SIZE =", size, cx))
             .child(row(
-                "Mode",
+                "MODE =",
                 choice(
                     "mode",
                     settings.mode,
                     &[
-                        (Mode::Scroll, "Scroll", true),
-                        (Mode::Paginated, "Paginated", true),
+                        (Mode::Scroll, "SCROLL", true),
+                        (Mode::Paginated, "PAGINATED", true),
                     ],
                     |s, v| s.mode = v,
+                    cx,
                 ),
+                cx,
             ))
             .child(div().h(px(1.)).bg(theme.border))
             .child(folders);
