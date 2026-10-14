@@ -125,6 +125,7 @@ impl Reader {
                 .await;
             this.update(cx, |reader, cx| {
                 reader.search.results = results;
+                reader.search.current = None;
                 reader.search.truncated = truncated;
                 reader.search.scroll.scroll_to_item(0, ScrollStrategy::Top);
                 cx.notify();
