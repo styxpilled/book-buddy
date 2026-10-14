@@ -3,14 +3,14 @@
 ## Popups
 
 - Do not use the gpui-component menus or popovers. They draw a soft shadow and a ring that cannot be changed.
-- Use `src/menu.rs`:
+- Use `src/ui/menu.rs`:
   - `Menu` and `popup` make a popup menu.
   - `shield` makes a layer that blocks the mouse input to the content under it. The settings overlay uses it too.
 - The offset shadow box is `style::SHADOW`. For a panel that is as tall as its parent, use `style::side_shadow`.
 
 ## Book images
 
-- `decode_image` in `src/reader.rs` resizes with `fast_image_resize`. The `image` crate's `resize` is about 10 times slower.
+- `decode_image` in `src/reader/images.rs` resizes with `fast_image_resize`. The `image` crate's `resize` is about 10 times slower.
 - When `dither_images` is on, the image is resized to one pixel per dot, then `dither_small` dithers it.
 - If the tones or the setting change, the images decode again.
 - In the dev profile, the image crates have `opt-level = 3`. Without it, a large JPEG takes seconds to decode.

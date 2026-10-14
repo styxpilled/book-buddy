@@ -8,8 +8,8 @@ use gpui::{
     div,
 };
 
-use crate::cover_adjust::{CloseCoverAdjust, CoverAdjust};
-use crate::details::{CloseDetails, DetailsDialog};
+use crate::library_view::cover_adjust::{CloseCoverAdjust, CoverAdjust};
+use crate::library_view::details::{CloseDetails, DetailsDialog};
 use crate::library_view::{LibraryEvent, LibraryView};
 use crate::reader::{Reader, ReaderEvent};
 use crate::scan;
@@ -171,7 +171,7 @@ impl Render for Shell {
             _ => self.library.clone().into_any_element(),
         };
         #[cfg(target_os = "windows")]
-        let title_bar = crate::title_bar::render(window, cx);
+        let title_bar = crate::ui::title_bar::render(window, cx);
         #[cfg(not(target_os = "windows"))]
         let title_bar = None::<gpui::Empty>;
         div()

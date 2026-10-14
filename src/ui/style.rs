@@ -17,9 +17,9 @@ pub const DITHER_CELL: u32 = 4;
 
 pub fn init(cx: &mut App) {
     let fonts: [&'static [u8]; 3] = [
-        include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf"),
-        include_bytes!("../assets/fonts/IBMPlexMono-Medium.ttf"),
-        include_bytes!("../assets/fonts/DotGothic16-Regular.ttf"),
+        include_bytes!("../../assets/fonts/IBMPlexMono-Regular.ttf"),
+        include_bytes!("../../assets/fonts/IBMPlexMono-Medium.ttf"),
+        include_bytes!("../../assets/fonts/DotGothic16-Regular.ttf"),
     ];
     cx.text_system()
         .add_fonts(fonts.into_iter().map(Cow::Borrowed).collect())
@@ -52,7 +52,7 @@ impl Tint {
 /// Installs the theme with `tint` on its neutral colors.
 pub fn set_theme(mode: ThemeMode, tint: Tint, cx: &mut App) {
     let mut json: serde_json::Value =
-        serde_json::from_str(include_str!("../assets/themes/monochrome.json"))
+        serde_json::from_str(include_str!("../../assets/themes/monochrome.json"))
             .expect("bundled theme must parse");
     if let (true, Some(themes)) = (tint != Tint::DRAWN, json["themes"].as_array_mut()) {
         for theme in themes {

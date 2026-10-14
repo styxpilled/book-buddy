@@ -11,7 +11,7 @@ use gpui::{
 };
 use gpui_kit::component::ActiveTheme;
 
-use crate::style;
+use super::style;
 
 const ITEM_HEIGHT: f32 = 26.;
 

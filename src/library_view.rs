@@ -16,14 +16,19 @@ use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::{ActiveTheme, Sizable};
 
+mod backdrop;
+pub(crate) mod cover_adjust;
+pub(crate) mod details;
+mod image_cache;
+
 use crate::Import;
-use crate::backdrop::backdrop;
-use crate::image_cache::{BoundedImageCache, Filter};
-use crate::menu::{self, Dismiss, Menu, MenuItem};
 use crate::scan::{COVER_HEIGHT, COVER_WIDTH};
 use crate::settings::OpenSettings;
 use crate::store::{Store, cover_path};
-use crate::style;
+use crate::ui::menu::{self, Dismiss, Menu, MenuItem};
+use crate::ui::style;
+use backdrop::backdrop;
+use image_cache::{BoundedImageCache, Filter};
 
 const MARGIN: f32 = 16.;
 const GAP: f32 = 32.;

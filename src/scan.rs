@@ -9,7 +9,7 @@ use chrono::{DateTime, Utc};
 use gpui::{App, AppContext, AsyncApp};
 
 use crate::store::{Store, cover_path};
-use crate::style;
+use crate::ui::style;
 
 /// Cover thumbnails are made at 2x the size in the library grid.
 pub const COVER_WIDTH: u32 = 160;

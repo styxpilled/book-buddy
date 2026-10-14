@@ -10,7 +10,7 @@ use gpui::{
 use gpui_kit::component::ActiveTheme;
 use image::{Frame, Rgba, RgbaImage};
 
-use crate::style;
+use crate::ui::style;
 
 /// Logical pixels of one dot, as on the covers.
 const DOT: f32 = 2.;

@@ -3,25 +3,15 @@
     windows_subsystem = "windows"
 )]
 
-#[cfg(target_os = "windows")]
-mod association;
-mod backdrop;
-mod cover_adjust;
-mod details;
-mod image_cache;
-#[cfg(target_os = "windows")]
-mod instance;
 mod library_view;
-mod menu;
+#[cfg(target_os = "windows")]
+mod platform;
 mod reader;
 mod scan;
 mod settings;
 mod shell;
-#[cfg(all(feature = "sim", target_os = "windows"))]
-mod sim;
 mod store;
-mod style;
-mod title_bar;
+mod ui;
 
 use std::path::{self, PathBuf};
 
@@ -43,7 +33,7 @@ fn main() {
         .nth(1)
         .map(|arg| path::absolute(&arg).unwrap_or_else(|_| PathBuf::from(arg)));
     #[cfg(target_os = "windows")]
-    let Some(opened) = instance::claim(arg.as_deref()) else {
+    let Some(opened) = platform::instance::claim(arg.as_deref()) else {
         return;
     };
     let store = Store::load();
@@ -54,7 +44,7 @@ fn main() {
         .with_assets(gpui_kit::assets::Assets)
         .run(move |cx: &mut App| {
             gpui_kit::init(cx);
-            style::init(cx);
+            ui::style::init(cx);
             reader::init(cx);
             cx.set_global(store);
             settings::init(cx);
@@ -111,7 +101,7 @@ fn main() {
             .detach();
 
             #[cfg(all(feature = "sim", target_os = "windows"))]
-            sim::serve(window.into(), cx);
+            platform::sim::serve(window.into(), cx);
             #[cfg(not(all(feature = "sim", target_os = "windows")))]
             {
                 let _ = window;
@@ -152,7 +142,7 @@ fn restore_window(saved: Option<WindowState>, cx: &App) -> (WindowBounds, Option
 /// A later start sends its path here. The window comes to the front and opens it.
 #[cfg(target_os = "windows")]
 fn open_from_later_starts(
-    mut opened: instance::Opened,
+    mut opened: platform::instance::Opened,
     shell: gpui::WeakEntity<Shell>,
     window: gpui::WindowHandle<Root>,
     cx: &mut App,

@@ -12,10 +12,10 @@ use gpui_kit::component::ActiveTheme;
 use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
 use image::{Frame, RgbaImage};
 
+use super::backdrop::backdrop;
 use crate::Back;
-use crate::backdrop::backdrop;
 use crate::store::{Store, cover_path};
-use crate::style;
+use crate::ui::style;
 
 /// Logical pixels of one dot in the preview: twice the size in the library.
 const PREVIEW_DOT: f32 = 4.;

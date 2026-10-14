@@ -10,9 +10,9 @@ use gpui_kit::component::ActiveTheme;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 
 use crate::Back;
-use crate::menu;
 use crate::store::Store;
-use crate::style;
+use crate::ui::menu;
+use crate::ui::style;
 
 const PANEL_WIDTH: f32 = 500.;
 const LABEL_WIDTH: f32 = 80.;

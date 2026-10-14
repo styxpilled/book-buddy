@@ -14,7 +14,7 @@ use gpui_kit::component::ActiveTheme;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 
 use crate::Back;
-use crate::style;
+use crate::ui::style;
 
 use super::{Adjust, NextMatch, OpenSearch, PreviousMatch, Reader, SANS};
 

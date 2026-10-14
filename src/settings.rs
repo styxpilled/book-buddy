@@ -9,10 +9,10 @@ use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
 use gpui_kit::component::{ActiveTheme, ThemeMode};
 
 use crate::Back;
-use crate::menu::{self, Dismiss, Menu, MenuItem};
 use crate::scan;
 use crate::store::Store;
-use crate::style::{self, Tint};
+use crate::ui::menu::{self, Dismiss, Menu, MenuItem};
+use crate::ui::style::{self, Tint};
 
 const PANEL_WIDTH: f32 = 500.;
 const LABEL_WIDTH: f32 = 110.;
@@ -152,7 +152,7 @@ impl SettingsPanel {
             font_menu: None,
             confirm_clear: false,
             #[cfg(target_os = "windows")]
-            associated: crate::association::registered(),
+            associated: crate::platform::association::registered(),
             _subscriptions: subscriptions,
         }
     }
@@ -222,10 +222,10 @@ impl SettingsPanel {
         };
         let button = style::button("associate", text, filled, cx).on_click(cx.listener(
             |panel, _, _, cx| {
-                if let Err(e) = crate::association::register() {
+                if let Err(e) = crate::platform::association::register() {
                     log::error!("{e:#}");
                 }
-                panel.associated = crate::association::registered();
+                panel.associated = crate::platform::association::registered();
                 cx.notify();
             },
         ));
