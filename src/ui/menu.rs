@@ -155,7 +155,7 @@ impl Render for Menu {
                     .child(item.label.clone())
                     .map(|row| {
                         if item.disabled {
-                            row.opacity(0.45)
+                            row.opacity(style::DISABLED)
                         } else {
                             row.cursor_pointer()
                                 .on_hover(cx.listener(move |menu, hovered: &bool, _, cx| {

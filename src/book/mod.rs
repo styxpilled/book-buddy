@@ -130,7 +130,7 @@ fn content_hash(path: &Path) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::xhtml::describe;
+    use super::xhtml::{describe, describe_all, runs};
     use super::*;
     use rbook::ebook::toc::TocEntryKind;
     use rbook::epub::metadata::EpubVersion;
@@ -142,17 +142,6 @@ mod tests {
                 .join(name),
         )
         .unwrap()
-    }
-
-    fn describe_all(chapter: &Chapter) -> Vec<String> {
-        chapter.blocks.iter().map(describe).collect()
-    }
-
-    fn runs(block: &Block) -> &[Run] {
-        match &block.kind {
-            BlockKind::Heading { runs, .. } | BlockKind::Paragraph { runs } => runs,
-            _ => &[],
-        }
     }
 
     #[test]

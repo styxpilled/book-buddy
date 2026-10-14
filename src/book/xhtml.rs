@@ -623,6 +623,21 @@ impl<'a> Builder<'a> {
 }
 
 #[cfg(test)]
+pub(crate) fn describe_all(chapter: &Chapter) -> Vec<String> {
+    chapter.blocks.iter().map(describe).collect()
+}
+
+#[cfg(test)]
+pub(crate) fn runs(block: &Block) -> &[Run] {
+    match &block.kind {
+        BlockKind::Heading { runs, .. }
+        | BlockKind::Paragraph { runs }
+        | BlockKind::ListItem { runs, .. } => runs,
+        _ => &[],
+    }
+}
+
+#[cfg(test)]
 pub(crate) fn describe(block: &Block) -> String {
     let text = |runs: &[Run]| runs.iter().map(|r| r.text.as_str()).collect::<String>();
     match &block.kind {
@@ -658,19 +673,6 @@ mod tests {
             &format!("<html xmlns=\"http://www.w3.org/1999/xhtml\"><body>{body}</body></html>"),
             BASE,
         )
-    }
-
-    fn describe_all(chapter: &Chapter) -> Vec<String> {
-        chapter.blocks.iter().map(describe).collect()
-    }
-
-    fn runs(block: &Block) -> &[Run] {
-        match &block.kind {
-            BlockKind::Heading { runs, .. }
-            | BlockKind::Paragraph { runs }
-            | BlockKind::ListItem { runs, .. } => runs,
-            _ => &[],
-        }
     }
 
     fn run(text: &str, bold: bool, italic: bool) -> Run {

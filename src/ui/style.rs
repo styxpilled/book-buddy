@@ -5,15 +5,18 @@ use std::borrow::Cow;
 use std::rc::Rc;
 
 use gpui::{
-    App, Div, ElementId, Global, Hsla, InteractiveElement, IntoElement, ParentElement, PathBuilder,
-    SharedString, Stateful, Styled, canvas, div, prelude::FluentBuilder, px, relative,
+    App, Div, ElementId, Entity, Global, Hsla, InteractiveElement, IntoElement, ParentElement,
+    PathBuilder, SharedString, Stateful, Styled, canvas, div, prelude::FluentBuilder, px, relative,
 };
+use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::{ActiveTheme, Theme, ThemeMode, ThemeSet};
 
 /// The dot-matrix font for numbers.
 pub const DOT: &str = "DotGothic16";
 /// Pixels of a cover thumbnail in one dot of the dithering.
 pub const DITHER_CELL: u32 = 4;
+/// The opacity of a control that does nothing.
+pub const DISABLED: f32 = 0.45;
 
 pub fn init(cx: &mut App) {
     let fonts: [&'static [u8]; 3] = [
@@ -207,6 +210,15 @@ pub fn button(
 /// A horizontal line that takes the free width.
 pub fn rule(cx: &App) -> Div {
     div().flex_1().h(px(1.)).bg(cx.theme().border)
+}
+
+/// A text input with a line under it.
+pub fn input(state: &Entity<InputState>, cx: &App) -> Div {
+    div()
+        .flex_1()
+        .border_b_1()
+        .border_color(cx.theme().border)
+        .child(Input::new(state).appearance(false).cleanable(true))
 }
 
 /// A muted label in capitals.

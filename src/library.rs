@@ -283,14 +283,6 @@ impl Library {
         self.books.iter_mut().find(|b| b.id == id)
     }
 
-    /// Finds the entry for a file, or adds one, and makes it the last opened book.
-    pub fn open(&mut self, info: FileInfo, now: DateTime<Utc>) -> &mut BookEntry {
-        let index = self.upsert(info, now);
-        let id = self.books[index].id.clone();
-        self.mark_opened(&id, now);
-        &mut self.books[index]
-    }
-
     /// Makes a book the last opened book.
     pub fn mark_opened(&mut self, id: &str, now: DateTime<Utc>) {
         if let Some(entry) = self.book_mut(id) {
@@ -415,6 +407,13 @@ fn same_path(a: &Path, b: &Path) -> bool {
 mod tests {
     use super::*;
 
+    /// Adds a book and makes it the last opened book, as the reader does.
+    fn open(library: &mut Library, info: FileInfo, now: DateTime<Utc>) -> &mut BookEntry {
+        let id = library.add(info, now).id.clone();
+        library.mark_opened(&id, now);
+        library.book_mut(&id).unwrap()
+    }
+
     fn temp_dir(name: &str) -> PathBuf {
         let dir =
             std::env::temp_dir().join(format!("book-buddy-test-{}-{name}", std::process::id()));
@@ -466,7 +465,7 @@ mod tests {
         let dir = temp_dir("roundtrip");
         let path = dir.join("data").join("library.json");
         let mut library = Library::default();
-        let book = library.open(info("a", "C:\\Books\\a.epub"), time(200));
+        let book = open(&mut library, info("a", "C:\\Books\\a.epub"), time(200));
         book.position = Position {
             spine: 3,
             offset: 42,
@@ -522,14 +521,14 @@ mod tests {
     #[cfg(target_os = "windows")]
     fn open_matches_by_path_then_id() {
         let mut library = Library::default();
-        let added = library.open(info("a", "C:\\Books\\a.epub"), time(200));
+        let added = open(&mut library, info("a", "C:\\Books\\a.epub"), time(200));
         added.position = Position {
             spine: 1,
             offset: 5,
         };
         assert_eq!(added.added, time(200));
 
-        let same_path = library.open(info("a2", "c:\\books\\A.epub"), time(300));
+        let same_path = open(&mut library, info("a2", "c:\\books\\A.epub"), time(300));
         assert_eq!(same_path.id, "a2");
         assert_eq!(
             same_path.position,
@@ -541,7 +540,7 @@ mod tests {
         assert_eq!(same_path.added, time(200));
         assert_eq!(same_path.last_opened, Some(time(300)));
 
-        let moved = library.open(info("a2", "D:\\Moved\\a.epub"), time(400));
+        let moved = open(&mut library, info("a2", "D:\\Moved\\a.epub"), time(400));
         assert_eq!(moved.path, PathBuf::from("D:\\Moved\\a.epub"));
         assert_eq!(
             moved.position,
@@ -551,7 +550,7 @@ mod tests {
             }
         );
 
-        library.open(info("b", "D:\\b.epub"), time(500));
+        open(&mut library, info("b", "D:\\b.epub"), time(500));
         assert_eq!(library.books.len(), 2);
         assert_eq!(library.last_book.as_deref(), Some("b"));
     }
@@ -563,7 +562,7 @@ mod tests {
         fs::write(&first, "x").unwrap();
         let mut library = Library::default();
         library.add(info("a", first.to_str().unwrap()), time(100));
-        library.open(info("a", "D:\\copy.epub"), time(200));
+        open(&mut library, info("a", "D:\\copy.epub"), time(200));
         assert_eq!(library.books.len(), 1);
         assert_eq!(library.books[0].path, first);
         assert_eq!(library.last_book.as_deref(), Some("a"));

@@ -4,9 +4,7 @@
 //! `render_to_image`, so the window can stay behind the user's windows.
 
 use std::collections::HashSet;
-use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
-use std::os::windows::io::FromRawHandle;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -23,15 +21,11 @@ use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use windows::Win32::Foundation::{HWND, POINT, RECT};
 use windows::Win32::Graphics::Gdi::ClientToScreen;
 use windows::Win32::Storage::FileSystem::PIPE_ACCESS_DUPLEX;
-use windows::Win32::System::Pipes::{
-    ConnectNamedPipe, CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS,
-    PIPE_TYPE_BYTE, PIPE_WAIT,
-};
 use windows::Win32::UI::WindowsAndMessaging::{
     GetWindowRect, HWND_BOTTOM, SPI_GETWHEELSCROLLLINES, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
     SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SetWindowPos, SystemParametersInfoW,
 };
-use windows::core::w;
+use windows::core::HSTRING;
 
 /// Time for a frame to be drawn after a step, before the next one.
 const SETTLE: Duration = Duration::from_millis(250);
@@ -83,28 +77,9 @@ pub fn serve(handle: AnyWindowHandle, cx: &mut App) {
 /// One client at a time. Each line goes to the window, and its answer goes
 /// back before the next line is read.
 fn listen(sender: mpsc::UnboundedSender<Request>) -> Result<()> {
+    let name = HSTRING::from(r"\\.\pipe\book-buddy-dev-sim");
     loop {
-        // SAFETY: plain arguments, and the handle is checked below.
-        let pipe = unsafe {
-            CreateNamedPipeW(
-                w!(r"\\.\pipe\book-buddy-dev-sim"),
-                PIPE_ACCESS_DUPLEX,
-                PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
-                1,
-                4096,
-                4096,
-                0,
-                None,
-            )
-        };
-        if pipe.is_invalid() {
-            bail!("CreateNamedPipeW: {}", windows::core::Error::from_thread());
-        }
-        // A client that connects before this call is not an error.
-        // SAFETY: the pipe handle is valid.
-        unsafe { ConnectNamedPipe(pipe, None) }.ok();
-        // SAFETY: the handle is valid, and the file owns and closes it.
-        let file = unsafe { File::from_raw_handle(pipe.0) };
+        let file = super::accept(&name, PIPE_ACCESS_DUPLEX, 4096)?;
         let mut writer = file.try_clone()?;
         for line in BufReader::new(file).lines() {
             let Ok(line) = line else { break };
@@ -274,18 +249,14 @@ impl Sim {
                 self.move_to((x, y), handle, cx)?;
                 let lines = notches as f32 * wheel_scroll_lines();
                 let modifiers = self.modifiers;
-                handle.update(cx, |_, window, cx| -> Result<()> {
-                    window.dispatch_event(
-                        PlatformInput::ScrollWheel(ScrollWheelEvent {
-                            position: to_logical(window, (x, y))?,
-                            delta: ScrollDelta::Lines(point(0., lines)),
-                            modifiers,
-                            touch_phase: TouchPhase::Moved,
-                        }),
-                        cx,
-                    );
-                    Ok(())
-                })??;
+                dispatch_at(handle, cx, (x, y), |position| {
+                    PlatformInput::ScrollWheel(ScrollWheelEvent {
+                        position,
+                        delta: ScrollDelta::Lines(point(0., lines)),
+                        modifiers,
+                        touch_phase: TouchPhase::Moved,
+                    })
+                })?;
                 "ok".to_string()
             }
             "hover" => {
@@ -325,17 +296,13 @@ impl Sim {
     ) -> Result<()> {
         self.pointer = at;
         let (pressed_button, modifiers) = (self.pressed, self.modifiers);
-        handle.update(cx, |_, window, cx| -> Result<()> {
-            window.dispatch_event(
-                PlatformInput::MouseMove(MouseMoveEvent {
-                    position: to_logical(window, at)?,
-                    pressed_button,
-                    modifiers,
-                }),
-                cx,
-            );
-            Ok(())
-        })?
+        dispatch_at(handle, cx, at, |position| {
+            PlatformInput::MouseMove(MouseMoveEvent {
+                position,
+                pressed_button,
+                modifiers,
+            })
+        })
     }
 
     fn button(
@@ -348,9 +315,8 @@ impl Sim {
     ) -> Result<()> {
         self.pressed = down.then_some(button);
         let (at, modifiers) = (self.pointer, self.modifiers);
-        handle.update(cx, |_, window, cx| -> Result<()> {
-            let position = to_logical(window, at)?;
-            let event = if down {
+        dispatch_at(handle, cx, at, |position| {
+            if down {
                 PlatformInput::MouseDown(MouseDownEvent {
                     button,
                     position,
@@ -365,10 +331,8 @@ impl Sim {
                     modifiers,
                     click_count,
                 })
-            };
-            window.dispatch_event(event, cx);
-            Ok(())
-        })?
+            }
+        })
     }
 
     fn key(
@@ -408,9 +372,7 @@ impl Sim {
                 PlatformInput::KeyUp(KeyUpEvent { keystroke })
             }
         };
-        handle.update(cx, |_, window, cx| {
-            window.dispatch_event(event, cx);
-        })
+        dispatch(handle, cx, event)
     }
 }
 
@@ -418,6 +380,20 @@ fn dispatch(handle: AnyWindowHandle, cx: &mut AsyncApp, event: PlatformInput) ->
     handle.update(cx, |_, window, cx| {
         window.dispatch_event(event, cx);
     })
+}
+
+/// Dispatches an event at a point in window pixels.
+fn dispatch_at(
+    handle: AnyWindowHandle,
+    cx: &mut AsyncApp,
+    at: (i32, i32),
+    event: impl FnOnce(Point<gpui::Pixels>) -> PlatformInput,
+) -> Result<()> {
+    handle.update(cx, |_, window, cx| -> Result<()> {
+        let event = event(to_logical(window, at)?);
+        window.dispatch_event(event, cx);
+        Ok(())
+    })?
 }
 
 fn coordinates<const N: usize>(value: &str) -> Result<[i32; N]> {

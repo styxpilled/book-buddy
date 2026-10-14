@@ -13,7 +13,7 @@ use gpui::{
     Window, div, img, prelude::*, px, relative, uniform_list,
 };
 use gpui_kit::component::button::{Button, ButtonVariants};
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::{ActiveTheme, Sizable};
 
 mod backdrop;
@@ -133,11 +133,7 @@ impl LibraryView {
         Self {
             filter,
             sort: Sort::LastOpened,
-            covers: BoundedImageCache::new(
-                decoded_covers(window),
-                Some(cover_filter(tones, adjusts.clone())),
-                cx,
-            ),
+            covers: cover_cache(tones, adjusts.clone(), window, cx),
             tones,
             adjusts,
             menu: None,
@@ -232,13 +228,7 @@ impl LibraryView {
                     .items_center()
                     .gap(px(10.))
                     // .child(style::tag("FILTER", cx))
-                    .child(
-                        div()
-                            .flex_1()
-                            .border_b_1()
-                            .border_color(cx.theme().border)
-                            .child(Input::new(&self.filter).appearance(false).cleanable(true)),
-                    ),
+                    .child(style::input(&self.filter, cx)),
             )
             .child(
                 div()
@@ -299,6 +289,15 @@ fn cover_adjusts(cx: &App) -> HashMap<PathBuf, Adjust> {
         .collect()
 }
 
+fn cover_cache(
+    tones: ([u8; 3], [u8; 3]),
+    adjusts: Arc<HashMap<PathBuf, Adjust>>,
+    window: &Window,
+    cx: &mut App,
+) -> Entity<BoundedImageCache> {
+    BoundedImageCache::new(decoded_covers(window), cover_filter(tones, adjusts), cx)
+}
+
 fn cover_filter(
     (dark, light): ([u8; 3], [u8; 3]),
     adjusts: Arc<HashMap<PathBuf, Adjust>>,
@@ -316,8 +315,7 @@ impl Render for LibraryView {
         if tones != self.tones {
             self.tones = tones;
             self.adjusts = Arc::new(adjusts);
-            let filter = cover_filter(tones, self.adjusts.clone());
-            self.covers = BoundedImageCache::new(decoded_covers(window), Some(filter), cx);
+            self.covers = cover_cache(tones, self.adjusts.clone(), window, cx);
         } else if adjusts != *self.adjusts {
             let changed: Vec<PathBuf> = adjusts
                 .keys()
@@ -575,12 +573,7 @@ fn book_items(
         })
         .disabled(!has_cover),
         MenuItem::new("REMOVE FROM LIBRARY", move |_, cx| {
-            cx.update_global(|store: &mut Store, _| {
-                if let Some(removed) = store.library.remove(&remove_id) {
-                    std::fs::remove_file(cover_path(store.covers(), &removed.id)).ok();
-                }
-                store.save();
-            });
+            cx.update_global(|store: &mut Store, _| store.remove_book(&remove_id));
         }),
     ];
     #[cfg(target_os = "windows")]

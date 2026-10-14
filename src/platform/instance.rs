@@ -1,20 +1,15 @@
 //! One running app for each user. A later start sends its book path to the
 //! running app through a named pipe, and then exits.
 
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Write};
-use std::os::windows::io::FromRawHandle;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use futures::channel::mpsc;
 use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError};
 use windows::Win32::Storage::FileSystem::PIPE_ACCESS_INBOUND;
-use windows::Win32::System::Pipes::{
-    ConnectNamedPipe, CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS,
-    PIPE_TYPE_BYTE, PIPE_WAIT,
-};
 use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::WindowsAndMessaging::{ASFW_ANY, AllowSetForegroundWindow};
 use windows::core::HSTRING;
@@ -85,27 +80,7 @@ fn send(path: Option<&Path>) -> Result<()> {
 fn listen(sender: mpsc::UnboundedSender<Option<PathBuf>>) -> Result<()> {
     let name = HSTRING::from(pipe());
     loop {
-        // SAFETY: plain arguments, and the handle is checked below.
-        let pipe = unsafe {
-            CreateNamedPipeW(
-                &name,
-                PIPE_ACCESS_INBOUND,
-                PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
-                1,
-                0,
-                4096,
-                0,
-                None,
-            )
-        };
-        if pipe.is_invalid() {
-            bail!("CreateNamedPipeW: {}", windows::core::Error::from_thread());
-        }
-        // A client that connects before this call is not an error.
-        // SAFETY: the pipe handle is valid.
-        unsafe { ConnectNamedPipe(pipe, None) }.ok();
-        // SAFETY: the handle is valid, and the file owns and closes it.
-        let file = unsafe { File::from_raw_handle(pipe.0) };
+        let file = super::accept(&name, PIPE_ACCESS_INBOUND, 0)?;
         let mut line = String::new();
         BufReader::new(file).read_line(&mut line).ok();
         let line = line.trim();

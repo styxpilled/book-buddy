@@ -142,7 +142,6 @@ pub fn init(cx: &mut App) {
 }
 
 enum Status {
-    NoBook,
     Loading,
     Failed(String),
     Ready,
@@ -319,7 +318,7 @@ impl Focusable for Reader {
 }
 
 impl Reader {
-    pub fn new(path: Option<PathBuf>, cx: &mut Context<Self>) -> Self {
+    pub fn new(path: PathBuf, cx: &mut Context<Self>) -> Self {
         let list = ListState::new(0, ListAlignment::Top, px(1000.));
         let this = cx.entity().downgrade();
         list.set_scroll_handler(move |_, _, cx| {
@@ -336,7 +335,7 @@ impl Reader {
         let (font, font_size) = (settings.font, settings.font_size as f32);
         let (mode, hide_bars) = (settings.mode, settings.hide_bars);
         let mut reader = Self {
-            status: Status::NoBook,
+            status: Status::Loading,
             book: None,
             book_id: None,
             spine_len: 0,
@@ -370,9 +369,7 @@ impl Reader {
             focus: cx.focus_handle(),
             _subscriptions: subscriptions,
         };
-        if let Some(path) = path {
-            reader.open(path, cx);
-        }
+        reader.open(path, cx);
         reader
     }
 
@@ -443,14 +440,10 @@ impl Reader {
     /// Saves the position and releases the decoded images.
     pub fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.save_position(cx);
-        for picture in self.pictures.values_mut() {
-            if let Decode::Done(image) = mem::replace(&mut picture.decode, Decode::No) {
-                window.drop_image(image).ok();
-            }
-        }
-        for image in self.dropped.drain(..) {
+        for image in self.pictures.values_mut().filter_map(Picture::reset) {
             window.drop_image(image).ok();
         }
+        self.drop_images(window);
     }
 
     /// The list keeps the part of the top block that is scrolled, so the
@@ -779,10 +772,9 @@ impl Reader {
     }
 
     fn seek_to(&mut self, percent: f32, cx: &mut Context<Self>) {
-        if self.chapters.len() < self.spine_len {
+        let Some(total) = self.book_len() else {
             return;
-        }
-        let total: usize = self.chapters.iter().map(|c| c.len).sum();
+        };
         let mut rest = (percent / 100. * total as f32) as usize;
         for (spine, chapter) in self.chapters.iter().enumerate() {
             if rest < chapter.len {
@@ -801,13 +793,15 @@ impl Reader {
         self.show_book_end(cx);
     }
 
+    /// Characters in the book. Known when all chapters are loaded.
+    fn book_len(&self) -> Option<usize> {
+        (self.chapters.len() >= self.spine_len).then(|| self.chapters.iter().map(|c| c.len).sum())
+    }
+
     /// Characters before the position, as a percent of the book. Known when all
     /// chapters are loaded.
     fn percent(&self, position: Position) -> Option<f32> {
-        if self.chapters.len() < self.spine_len {
-            return None;
-        }
-        let total: usize = self.chapters.iter().map(|c| c.len).sum();
+        let total = self.book_len()?;
         let before: usize = self.chapters[..position.spine].iter().map(|c| c.len).sum();
         Some((100. * (before + position.offset) as f32 / total.max(1) as f32).min(100.))
     }
@@ -918,7 +912,17 @@ impl Reader {
             BlockKind::Image { .. } | BlockKind::Error { .. } => (0., size * 0.75, None),
             BlockKind::Rule => (size, size, None),
         };
-        Spacing { top, bottom, line }
+        let quote = if item.block.quote > 0 {
+            size * QUOTE_GAP
+        } else {
+            0.
+        };
+        Spacing {
+            top,
+            bottom,
+            line,
+            quote,
+        }
     }
 
     /// Returns the element and the href of an image that must be decoded.
@@ -1046,7 +1050,7 @@ impl Reader {
         if item.block.quote > 0 {
             content = div()
                 .ml(px(font_size * (item.block.quote as f32 - 1.)))
-                .mb(px(font_size * QUOTE_GAP))
+                .mb(px(spacing.quote))
                 .pl(px(font_size))
                 .border_l_1()
                 .border_color(theme.border)
@@ -1095,6 +1099,8 @@ struct Spacing {
     top: f32,
     bottom: f32,
     line: Option<f32>,
+    /// Space below a block quote.
+    quote: f32,
 }
 
 fn open_book(path: PathBuf, covers: PathBuf) -> anyhow::Result<Opened> {
@@ -1139,15 +1145,10 @@ impl Render for Reader {
         if tones != self.tones {
             self.tones = tones;
             self.decoded.clear();
-            for picture in self.pictures.values_mut() {
-                if let Decode::Done(image) = mem::replace(&mut picture.decode, Decode::No) {
-                    self.dropped.push(image);
-                }
-            }
+            self.dropped
+                .extend(self.pictures.values_mut().filter_map(Picture::reset));
         }
-        for image in self.dropped.drain(..) {
-            window.drop_image(image).ok();
-        }
+        self.drop_images(window);
         match self.adjust {
             Some(Adjust::Part { ix, part, margin }) => match self.list.bounds_for_item(ix) {
                 Some(bounds) => {
@@ -1200,8 +1201,7 @@ impl Render for Reader {
                 .into_any_element()
         };
         let body = match &self.status {
-            Status::NoBook => message("Open a book: book-buddy <file.epub>".into()),
-            Status::Loading => message("Loading...".into()),
+            Status::Loading => div().into_any_element(),
             Status::Failed(error) => message(error.clone().into()),
             Status::Ready if self.paged() => pages.unwrap_or_else(|| div().into_any_element()),
             Status::Ready => {

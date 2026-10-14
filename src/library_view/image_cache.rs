@@ -7,7 +7,9 @@ use gpui::{
     App, AppContext, Asset, Entity, ImageAssetLoader, ImageCache, ImageCacheError, ImageCacheItem,
     RenderImage, Resource, Window, hash,
 };
-use image::{Frame, RgbaImage};
+use image::RgbaImage;
+
+use crate::ui::render_image;
 
 /// Changes an image from a file before it is shown.
 pub type Filter = Arc<dyn Fn(&Path, RgbaImage) -> RgbaImage + Send + Sync>;
@@ -18,11 +20,11 @@ pub struct BoundedImageCache {
     items: HashMap<u64, ImageCacheItem>,
     order: VecDeque<u64>,
     capacity: usize,
-    filter: Option<Filter>,
+    filter: Filter,
 }
 
 impl BoundedImageCache {
-    pub fn new(capacity: usize, filter: Option<Filter>, cx: &mut App) -> Entity<Self> {
+    pub fn new(capacity: usize, filter: Filter, cx: &mut App) -> Entity<Self> {
         let cache = cx.new(|_| Self {
             items: HashMap::new(),
             order: VecDeque::new(),
@@ -30,10 +32,8 @@ impl BoundedImageCache {
             filter,
         });
         cx.observe_release(&cache, |cache, cx| {
-            for (_, mut item) in cache.items.drain() {
-                if let Some(Ok(image)) = item.get() {
-                    cx.drop_image(image, None);
-                }
+            for (_, item) in cache.items.drain() {
+                drop_item(item, None, cx);
             }
         })
         .detach();
@@ -47,14 +47,12 @@ impl BoundedImageCache {
 
     /// Images load with `filter` from now on. The images of `paths` load again.
     pub fn set_filter(&mut self, filter: Filter, paths: &[PathBuf], cx: &mut App) {
-        self.filter = Some(filter);
+        self.filter = filter;
         for path in paths {
             let key = hash(&Resource::Path(path.as_path().into()));
-            if let Some(mut item) = self.items.remove(&key) {
+            if let Some(item) = self.items.remove(&key) {
                 self.order.retain(|k| *k != key);
-                if let Some(Ok(image)) = item.get() {
-                    cx.drop_image(image, None);
-                }
+                drop_item(item, None, cx);
             }
         }
     }
@@ -77,9 +75,9 @@ impl ImageCache for BoundedImageCache {
         }
 
         let executor = cx.background_executor().clone();
-        let task = match (&self.filter, resource) {
-            (Some(filter), Resource::Path(path)) => {
-                let (filter, path) = (filter.clone(), path.clone());
+        let task = match resource {
+            Resource::Path(path) => {
+                let (filter, path) = (self.filter.clone(), path.clone());
                 executor.spawn(async move { load_filtered(&path, &*filter) })
             }
             _ => executor.spawn(<ImageAssetLoader as Asset>::load(resource.clone(), cx)),
@@ -100,13 +98,18 @@ impl ImageCache for BoundedImageCache {
             let Some(old) = self.order.pop_front() else {
                 break;
             };
-            if let Some(mut item) = self.items.remove(&old)
-                && let Some(Ok(image)) = item.get()
-            {
-                cx.drop_image(image, Some(window));
+            if let Some(item) = self.items.remove(&old) {
+                drop_item(item, Some(window), cx);
             }
         }
         None
+    }
+}
+
+/// Drops the image of an item from the atlas, if it is loaded.
+fn drop_item(mut item: ImageCacheItem, window: Option<&mut Window>, cx: &mut App) {
+    if let Some(Ok(image)) = item.get() {
+        cx.drop_image(image, window);
     }
 }
 
@@ -117,10 +120,5 @@ fn load_filtered(
     let bytes = std::fs::read(path).map_err(|e| ImageCacheError::Io(Arc::new(e)))?;
     let image =
         image::load_from_memory(&bytes).map_err(|e| ImageCacheError::Other(Arc::new(e.into())))?;
-    let mut pixels = filter(path, image.into_rgba8());
-    // RenderImage is BGRA.
-    for pixel in pixels.pixels_mut() {
-        pixel.0.swap(0, 2);
-    }
-    Ok(Arc::new(RenderImage::new(vec![Frame::new(pixels)])))
+    Ok(render_image(filter(path, image.into_rgba8())))
 }

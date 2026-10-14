@@ -10,8 +10,8 @@ use gpui::{
 use gpui_kit::component::ActiveTheme;
 
 use super::{
-    COLUMN_WIDTH, HEADING_SCALE, HEADING_SPACING, LINE_SPACING, MARGIN, PRE_SCALE, QUOTE_GAP,
-    Reader, TEXT_BOTTOM, TEXT_TOP, content_height,
+    COLUMN_WIDTH, HEADING_SCALE, HEADING_SPACING, LINE_SPACING, MARGIN, PRE_SCALE, Reader,
+    TEXT_BOTTOM, TEXT_TOP, content_height,
 };
 
 /// The pages are made again only when the window size stays the same this long.
@@ -274,12 +274,7 @@ impl Reader {
             BlockKind::Rule => 1.,
             BlockKind::Error { .. } => self.line_height(),
         };
-        let quote = if item.block.quote > 0 {
-            size * QUOTE_GAP
-        } else {
-            0.
-        };
-        spacing.top + content + spacing.bottom + quote
+        spacing.top + content + spacing.bottom + spacing.quote
     }
 
     fn char_width(&self, window: &Window) -> f32 {
@@ -498,12 +493,7 @@ impl Reader {
         );
         let height = f32::from(element.layout_as_root(space, window, cx).height);
         let spacing = self.spacing(ix);
-        let quote = if self.items[ix].block.quote > 0 {
-            self.font_size * QUOTE_GAP
-        } else {
-            0.
-        };
-        let end = (height - spacing.bottom - quote).max(0.);
+        let end = (height - spacing.bottom - spacing.quote).max(0.);
         // GPUI rounds the line height, so it comes from the measured height.
         let lines = spacing.line.map(|guess| {
             let count = ((end - spacing.top) / guess).round().max(1.);

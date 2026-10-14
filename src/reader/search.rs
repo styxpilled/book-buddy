@@ -11,7 +11,7 @@ use gpui::{
     uniform_list,
 };
 use gpui_kit::component::ActiveTheme;
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::{InputEvent, InputState};
 
 use crate::Back;
 use crate::ui::style;
@@ -311,13 +311,7 @@ impl Reader {
                     .items_center()
                     .gap(px(10.))
                     .child(style::tag("QUERY", cx))
-                    .child(
-                        div()
-                            .flex_1()
-                            .border_b_1()
-                            .border_color(theme.border)
-                            .child(Input::new(input).appearance(false).cleanable(true)),
-                    )
+                    .child(style::input(input, cx))
             }))
             .when(!query_empty, |panel| {
                 panel.child(

@@ -8,8 +8,9 @@ use gpui::{
     App, AppContext, Global, IntoElement, ParentElement, RenderImage, Styled, Window, div, img, px,
 };
 use gpui_kit::component::ActiveTheme;
-use image::{Frame, Rgba, RgbaImage};
+use image::{Rgba, RgbaImage};
 
+use crate::ui::render_image;
 use crate::ui::style;
 
 /// Logical pixels of one dot, as on the covers.
@@ -139,18 +140,14 @@ fn render(key: Key) -> Arc<RenderImage> {
         let tone = ((1. - share) * 255.).round() as u8;
         Rgba([tone, tone, tone, 255])
     });
-    let mut pixels = dither_small(
+    let pixels = dither_small(
         &small,
         key.look.cell,
         &Adjust::NONE,
         key.look.dots,
         key.look.paper,
     );
-    // RenderImage is BGRA.
-    for pixel in pixels.pixels_mut() {
-        pixel.0.swap(0, 2);
-    }
-    Arc::new(RenderImage::new(vec![Frame::new(pixels)]))
+    render_image(pixels)
 }
 
 /// The darkness at a point in logical pixels, 0 to 1. Warped waves give soft

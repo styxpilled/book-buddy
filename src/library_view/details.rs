@@ -7,7 +7,7 @@ use gpui::{
     Subscription, Window, div, px,
 };
 use gpui_kit::component::ActiveTheme;
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::{InputEvent, InputState};
 
 use crate::Back;
 use crate::store::Store;
@@ -87,13 +87,7 @@ fn field(label: &'static str, input: &Entity<InputState>, cx: &App) -> impl Into
         .items_center()
         .gap_3()
         .child(style::label(label, cx).flex_none().w(px(LABEL_WIDTH)))
-        .child(
-            div()
-                .flex_1()
-                .border_b_1()
-                .border_color(cx.theme().border)
-                .child(Input::new(input).appearance(false).cleanable(true)),
-        )
+        .child(style::input(input, cx))
 }
 
 impl Render for DetailsDialog {

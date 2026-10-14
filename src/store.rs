@@ -51,19 +51,31 @@ impl Store {
         path.exists().then(|| path.clone())
     }
 
+    /// Removes a book and its cover thumbnail, or hides it (see `Library::remove`).
+    pub fn remove_book(&mut self, id: &str) {
+        if let Some(removed) = self.library.remove(id) {
+            self.remove_cover(&removed.id);
+        }
+        self.save();
+    }
+
     /// Removes all books, their cover thumbnails and the watched folders. The
     /// book files stay.
     pub fn clear_library(&mut self) {
         for book in &self.library.books {
-            let cover = cover_path(&self.covers, &book.id);
-            if let Err(e) = fs::remove_file(&cover)
-                && e.kind() != ErrorKind::NotFound
-            {
-                log::warn!("{}: {e}", cover.display());
-            }
+            self.remove_cover(&book.id);
         }
         self.library.clear();
         self.save();
+    }
+
+    fn remove_cover(&self, id: &str) {
+        let cover = cover_path(&self.covers, id);
+        if let Err(e) = fs::remove_file(&cover)
+            && e.kind() != ErrorKind::NotFound
+        {
+            log::warn!("{}: {e}", cover.display());
+        }
     }
 
     pub fn covers(&self) -> &Path {

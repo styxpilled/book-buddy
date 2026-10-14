@@ -86,6 +86,13 @@ fn tint(settings: &Settings) -> Tint {
     }
 }
 
+fn save_tint(tint: Tint, cx: &mut App) {
+    change(cx, |s| {
+        s.hue = tint.hue;
+        s.saturation = tint.saturation;
+    });
+}
+
 /// Shows a tint while a slider moves, without saving it.
 fn preview_tint(tint: Tint, cx: &mut App) {
     let mode = cx.theme().mode;
@@ -169,18 +176,12 @@ impl SettingsPanel {
             preview_tint(shown, cx);
         } else {
             self.shown_tint = None;
-            change(cx, |s| {
-                s.hue = shown.hue;
-                s.saturation = shown.saturation;
-            });
+            save_tint(shown, cx);
         }
     }
 
     fn drawn_tint(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        change(cx, |s| {
-            s.hue = Tint::DRAWN.hue;
-            s.saturation = Tint::DRAWN.saturation;
-        });
+        save_tint(Tint::DRAWN, cx);
         self.hue.update(cx, |slider, cx| {
             slider.set_value(DRAWN_HUE as f32, window, cx)
         });
@@ -297,7 +298,7 @@ fn font_label(font: Font) -> &'static str {
 fn choice<T: Copy + PartialEq + 'static>(
     id: &'static str,
     current: T,
-    options: &[(T, &'static str, bool)],
+    options: &[(T, &'static str)],
     set: fn(&mut Settings, T),
     cx: &App,
 ) -> impl IntoElement {
@@ -305,11 +306,11 @@ fn choice<T: Copy + PartialEq + 'static>(
         options
             .iter()
             .enumerate()
-            .map(move |(ix, &(value, label, enabled))| {
-                let button = style::button((id, ix), label, value == current, cx)
+            .map(move |(ix, &(value, label))| {
+                style::button((id, ix), label, value == current, cx)
                     // The borders of neighbours overlap.
-                    .when(ix > 0, |button| button.ml(px(-1.)));
-                enabled_button(button, enabled, move |cx| change(cx, |s| set(s, value)))
+                    .when(ix > 0, |button| button.ml(px(-1.)))
+                    .on_click(move |_, _, cx| change(cx, |s| set(s, value)))
             }),
     )
 }
@@ -323,7 +324,7 @@ fn enabled_button(
     if enabled {
         button.on_click(move |_, _, cx| on_click(cx))
     } else {
-        button.opacity(0.45).cursor_default()
+        button.opacity(style::DISABLED).cursor_default()
     }
 }
 
@@ -486,7 +487,7 @@ impl Render for SettingsPanel {
                 choice(
                     "theme",
                     settings.theme,
-                    &[(Theme::Light, "LIGHT", true), (Theme::Dark, "DARK", true)],
+                    &[(Theme::Light, "LIGHT"), (Theme::Dark, "DARK")],
                     |s, v| s.theme = v,
                     cx,
                 ),
@@ -531,10 +532,7 @@ impl Render for SettingsPanel {
                 choice(
                     "mode",
                     settings.mode,
-                    &[
-                        (Mode::Scroll, "SCROLL", true),
-                        (Mode::Paginated, "PAGINATED", true),
-                    ],
+                    &[(Mode::Scroll, "SCROLL"), (Mode::Paginated, "PAGINATED")],
                     |s, v| s.mode = v,
                     cx,
                 ),
@@ -545,7 +543,7 @@ impl Render for SettingsPanel {
                 choice(
                     "bars",
                     settings.hide_bars,
-                    &[(false, "ALWAYS", true), (true, "ON HOVER", true)],
+                    &[(false, "ALWAYS"), (true, "ON HOVER")],
                     |s, v| s.hide_bars = v,
                     cx,
                 ),
@@ -556,7 +554,7 @@ impl Render for SettingsPanel {
                 choice(
                     "images",
                     settings.dither_images,
-                    &[(false, "ORIGINAL", true), (true, "DITHERED", true)],
+                    &[(false, "ORIGINAL"), (true, "DITHERED")],
                     |s, v| s.dither_images = v,
                     cx,
                 ),
@@ -567,7 +565,7 @@ impl Render for SettingsPanel {
                 choice(
                     "show-hidden",
                     settings.show_hidden,
-                    &[(false, "OFF", true), (true, "ON", true)],
+                    &[(false, "OFF"), (true, "ON")],
                     |s, v| s.show_hidden = v,
                     cx,
                 ),

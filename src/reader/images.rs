@@ -6,11 +6,12 @@ use book_buddy::book::BlockKind;
 use book_buddy::dither::{self, dither_small};
 use book_buddy::library::Position;
 use fast_image_resize::Resizer;
-use gpui::{App, AppContext, Context, RenderImage};
-use image::{DynamicImage, Frame};
+use gpui::{App, AppContext, Context, RenderImage, Window};
+use image::DynamicImage;
 
 use super::{COLUMN_WIDTH, Reader};
 use crate::store::Store;
+use crate::ui::render_image;
 use crate::ui::style;
 
 /// GPUI keeps a decoded image until it is dropped, so only this many stay decoded.
@@ -38,6 +39,16 @@ pub(super) enum Decode {
     Failed,
 }
 
+impl Picture {
+    /// Sets the picture to not decoded. Returns the image if it was decoded.
+    pub(super) fn reset(&mut self) -> Option<Arc<RenderImage>> {
+        match mem::replace(&mut self.decode, Decode::No) {
+            Decode::Done(image) => Some(image),
+            _ => None,
+        }
+    }
+}
+
 pub(super) type Tones = ([u8; 3], [u8; 3]);
 
 pub(super) fn image_tones(cx: &App) -> Option<Tones> {
@@ -48,7 +59,7 @@ pub(super) fn image_tones(cx: &App) -> Option<Tones> {
 fn decode_image(bytes: &[u8], tones: Option<Tones>) -> Option<Arc<RenderImage>> {
     let image = image::load_from_memory(bytes).ok()?;
     let (width, height) = (image.width(), image.height());
-    let mut pixels = match tones {
+    let pixels = match tones {
         Some((dark, light)) => {
             let scale = (COLUMN_WIDTH / width as f32).min(1.) / DITHER_DOT;
             let dots = shrink(image, scale).into_rgba8();
@@ -65,11 +76,7 @@ fn decode_image(bytes: &[u8], tones: Option<Tones>) -> Option<Arc<RenderImage>> 
             shrink(image, scale).into_rgba8()
         }
     };
-    // RenderImage is BGRA.
-    for pixel in pixels.pixels_mut() {
-        pixel.0.swap(0, 2);
-    }
-    Some(Arc::new(RenderImage::new(vec![Frame::new(pixels)])))
+    Some(render_image(pixels))
 }
 
 fn shrink(image: DynamicImage, scale: f32) -> DynamicImage {
@@ -181,12 +188,16 @@ impl Reader {
             let Some(old) = self.decoded.pop_front() else {
                 break;
             };
-            if let Some(picture) = self.pictures.get_mut(&old)
-                && let Decode::Done(image) = mem::replace(&mut picture.decode, Decode::No)
-            {
+            if let Some(image) = self.pictures.get_mut(&old).and_then(Picture::reset) {
                 self.dropped.push(image);
             }
         }
         cx.notify();
+    }
+
+    pub(super) fn drop_images(&mut self, window: &mut Window) {
+        for image in self.dropped.drain(..) {
+            window.drop_image(image).ok();
+        }
     }
 }

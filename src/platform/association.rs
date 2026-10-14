@@ -17,20 +17,14 @@ const CLASSES: &str = r"Software\Classes";
 /// none. Windows keeps the choice of the user elsewhere, so the user still
 /// picks the app once in "Open with".
 pub fn register() -> Result<()> {
-    let exe = std::env::current_exe()?;
-    let command = format!("\"{}\" \"%1\"", exe.display());
-    set(
-        &format!(r"{CLASSES}\{PROG_ID}\shell\open\command"),
-        None,
-        &command,
-    )?;
+    set(&command_key(), None, &command()?)?;
     set(
         &format!(r"{CLASSES}\.epub\OpenWithProgids"),
         Some(PROG_ID),
         "",
     )?;
     let extension = format!(r"{CLASSES}\.epub");
-    if get(&extension, None).is_none_or(|app| app.is_empty() || app == PROG_ID) {
+    if get(&extension).is_none_or(|app| app.is_empty() || app == PROG_ID) {
         set(&extension, None, PROG_ID)?;
     }
     // SAFETY: plain arguments.
@@ -40,12 +34,20 @@ pub fn register() -> Result<()> {
 
 /// The ProgID opens this exe.
 pub fn registered() -> bool {
-    let Ok(exe) = std::env::current_exe() else {
+    let Ok(command) = command() else {
         return false;
     };
-    let command = format!("\"{}\" \"%1\"", exe.display());
-    get(&format!(r"{CLASSES}\{PROG_ID}\shell\open\command"), None)
-        .is_some_and(|value| value.eq_ignore_ascii_case(&command))
+    get(&command_key()).is_some_and(|value| value.eq_ignore_ascii_case(&command))
+}
+
+fn command_key() -> String {
+    format!(r"{CLASSES}\{PROG_ID}\shell\open\command")
+}
+
+/// This exe opens the file.
+fn command() -> std::io::Result<String> {
+    let exe = std::env::current_exe()?;
+    Ok(format!("\"{}\" \"%1\"", exe.display()))
 }
 
 /// `None` as the name is the default value of the key. Creates the key.
@@ -73,19 +75,16 @@ fn set(key: &str, name: Option<&str>, value: &str) -> Result<()> {
     Ok(())
 }
 
-fn get(key: &str, name: Option<&str>) -> Option<String> {
+/// The default value of the key.
+fn get(key: &str) -> Option<String> {
     let key = HSTRING::from(key);
-    let name = name.map(HSTRING::from);
-    let name = name
-        .as_ref()
-        .map_or(PCWSTR::null(), |name| PCWSTR(name.as_ptr()));
     let mut size = 0u32;
     // SAFETY: the first call only gets the size.
     let status = unsafe {
         RegGetValueW(
             HKEY_CURRENT_USER,
             &key,
-            name,
+            PCWSTR::null(),
             RRF_RT_REG_SZ,
             None,
             None,
@@ -101,7 +100,7 @@ fn get(key: &str, name: Option<&str>) -> Option<String> {
         RegGetValueW(
             HKEY_CURRENT_USER,
             &key,
-            name,
+            PCWSTR::null(),
             RRF_RT_REG_SZ,
             None,
             Some(data.as_mut_ptr().cast()),

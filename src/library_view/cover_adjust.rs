@@ -10,11 +10,12 @@ use gpui::{
 };
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
-use image::{Frame, RgbaImage};
+use image::RgbaImage;
 
 use super::backdrop::backdrop;
 use crate::Back;
 use crate::store::{Store, cover_path};
+use crate::ui::render_image;
 use crate::ui::style;
 
 /// Logical pixels of one dot in the preview: twice the size in the library.
@@ -200,14 +201,6 @@ fn value_mut(adjust: &mut Adjust, ix: usize) -> &mut i32 {
         3 => &mut adjust.contrast,
         ix => &mut adjust.hues[ix - FIRST_HUE],
     }
-}
-
-fn render_image(mut pixels: RgbaImage) -> Arc<RenderImage> {
-    // RenderImage is BGRA.
-    for pixel in pixels.pixels_mut() {
-        pixel.0.swap(0, 2);
-    }
-    Arc::new(RenderImage::new(vec![Frame::new(pixels)]))
 }
 
 fn signed(value: i32) -> String {

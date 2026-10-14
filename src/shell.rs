@@ -23,8 +23,7 @@ pub struct Shell {
     reader: Option<Entity<Reader>>,
     cover_adjust: Option<(Entity<CoverAdjust>, Subscription)>,
     details: Option<(Entity<DetailsDialog>, Subscription)>,
-    settings: Option<Entity<SettingsPanel>>,
-    _settings_subscription: Option<Subscription>,
+    settings: Option<(Entity<SettingsPanel>, Subscription)>,
     _subscriptions: Vec<Subscription>,
     _reader_subscriptions: Vec<Subscription>,
 }
@@ -44,7 +43,6 @@ impl Shell {
             cover_adjust: None,
             details: None,
             settings: None,
-            _settings_subscription: None,
             _subscriptions: vec![subscription],
             _reader_subscriptions: Vec::new(),
         };
@@ -61,7 +59,7 @@ impl Shell {
 
     pub fn open(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         self.close(window, cx);
-        let reader = cx.new(|cx| Reader::new(Some(path), cx));
+        let reader = cx.new(|cx| Reader::new(path, cx));
         self._reader_subscriptions = vec![
             cx.subscribe_in(&reader, window, |this, _, event, window, cx| match event {
                 ReaderEvent::Close => this.close(window, cx),
@@ -110,14 +108,13 @@ impl Shell {
     fn open_settings(&mut self, _: &OpenSettings, window: &mut Window, cx: &mut Context<Self>) {
         if self.settings.is_none() {
             let panel = cx.new(SettingsPanel::new);
-            self._settings_subscription = Some(cx.subscribe_in(
-                &panel,
-                window,
-                |this, _, _: &CloseSettings, window, cx| this.close_settings(window, cx),
-            ));
-            self.settings = Some(panel);
+            let subscription =
+                cx.subscribe_in(&panel, window, |this, _, _: &CloseSettings, window, cx| {
+                    this.close_settings(window, cx)
+                });
+            self.settings = Some((panel, subscription));
         }
-        if let Some(panel) = &self.settings {
+        if let Some((panel, _)) = &self.settings {
             panel.focus_handle(cx).focus(window, cx);
         }
         cx.notify();
@@ -125,7 +122,6 @@ impl Shell {
 
     fn close_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.settings = None;
-        self._settings_subscription = None;
         match &self.reader {
             Some(reader) => reader.focus_handle(cx).focus(window, cx),
             None => self.library.focus_handle(cx).focus(window, cx),
@@ -194,7 +190,7 @@ impl Render for Shell {
                     .min_h_0()
                     .child(content)
                     .children(self.details.as_ref().map(|(dialog, _)| dialog.clone()))
-                    .children(self.settings.clone()),
+                    .children(self.settings.as_ref().map(|(panel, _)| panel.clone())),
             )
             .child(back_button())
     }
