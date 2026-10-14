@@ -10,7 +10,7 @@ use gpui::{
     App, AppContext, Context, Div, Entity, EventEmitter, FocusHandle, Focusable,
     InteractiveElement, IntoElement, MouseButton, ObjectFit, ParentElement, Pixels, Point, Render,
     SharedString, StatefulInteractiveElement, Styled, StyledImage, Subscription, WeakEntity,
-    Window, div, image_cache, img, prelude::*, px, relative, uniform_list,
+    Window, div, img, prelude::*, px, relative, uniform_list,
 };
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -25,15 +25,15 @@ use crate::settings::OpenSettings;
 use crate::store::{Store, cover_path};
 use crate::style;
 
-const MARGIN: f32 = 32.;
+const MARGIN: f32 = 16.;
 const GAP: f32 = 32.;
+const GAP_TOP: f32 = 8.;
 const TITLE_LINE: f32 = 16.;
 const AUTHOR_LINE: f32 = 14.;
 const COVER_GAP: f32 = 4.;
-const CARD_BOTTOM: f32 = 4.;
+const CARD_BOTTOM: f32 = 8.;
 /// The space under the cover, gaps and lines included, for a title of two lines.
 const CARD_TEXT_HEIGHT: f32 = COVER_GAP + 2. + 2. * TITLE_LINE + 2. + AUTHOR_LINE + CARD_BOTTOM;
-const DECODED_COVERS: usize = 150;
 const CARD: &str = "card";
 
 pub enum LibraryEvent {
@@ -129,7 +129,7 @@ impl LibraryView {
             filter,
             sort: Sort::LastOpened,
             covers: BoundedImageCache::new(
-                DECODED_COVERS,
+                decoded_covers(window),
                 Some(cover_filter(tones, adjusts.clone())),
                 cx,
             ),
@@ -218,15 +218,15 @@ impl LibraryView {
             .items_center()
             .gap(px(20.))
             .px(px(MARGIN))
-            .pt(px(18.))
-            .pb(px(4.))
+            .pt(px(MARGIN))
+            .pb(px(8.))
             .child(
                 div()
                     .w(px(330.))
                     .flex()
                     .items_center()
                     .gap(px(10.))
-                    .child(style::tag("FILTER", cx))
+                    // .child(style::tag("FILTER", cx))
                     .child(
                         div()
                             .flex_1()
@@ -267,6 +267,22 @@ impl LibraryView {
     }
 }
 
+fn columns(window: &Window) -> usize {
+    (((grid_width(window) + GAP) / (COVER_WIDTH as f32 + GAP)).floor() as usize).max(1)
+}
+
+fn grid_width(window: &Window) -> f32 {
+    f32::from(window.viewport_size().width) - 2. * MARGIN
+}
+
+/// The covers of two screens stay decoded, so a scroll back does not decode
+/// them again. More covers would keep the memory of every book opened.
+fn decoded_covers(window: &Window) -> usize {
+    let height = f32::from(window.viewport_size().height);
+    let rows = (height / (COVER_HEIGHT as f32 + CARD_TEXT_HEIGHT)).ceil() as usize + 1;
+    2 * rows * columns(window)
+}
+
 fn cover_adjusts(cx: &App) -> HashMap<PathBuf, Adjust> {
     let store = cx.global::<Store>();
     store
@@ -296,7 +312,7 @@ impl Render for LibraryView {
             self.tones = tones;
             self.adjusts = Arc::new(adjusts);
             let filter = cover_filter(tones, self.adjusts.clone());
-            self.covers = BoundedImageCache::new(DECODED_COVERS, Some(filter), cx);
+            self.covers = BoundedImageCache::new(decoded_covers(window), Some(filter), cx);
         } else if adjusts != *self.adjusts {
             let changed: Vec<PathBuf> = adjusts
                 .keys()
@@ -311,10 +327,15 @@ impl Render for LibraryView {
         }
         let books = Rc::new(self.visible_books(cx));
         let count = books.len();
+        let capacity = decoded_covers(window);
+        self.covers
+            .update(cx, |covers, _| covers.set_capacity(capacity));
         let theme = cx.theme();
-        let width = f32::from(window.viewport_size().width) - 2. * MARGIN;
-        let columns = (((width + GAP) / (COVER_WIDTH as f32 + GAP)).floor() as usize).max(1);
+        let columns = columns(window);
         let rows = books.len().div_ceil(columns);
+        // The room left after the columns goes to both sides of the grid.
+        let used = columns as f32 * (COVER_WIDTH as f32 + GAP) - GAP;
+        let side = MARGIN + (grid_width(window) - used).max(0.) / 2.;
 
         let body = if books.is_empty() {
             let empty = cx.global::<Store>().library.books.is_empty();
@@ -333,7 +354,11 @@ impl Render for LibraryView {
                 .into_any_element()
         } else {
             let view = cx.entity().downgrade();
-            image_cache(self.covers.clone())
+            let covers = self.covers.clone();
+            // `uniform_list` lays out its rows in prepaint, where an
+            // `image_cache` parent is not in scope. Without its own cache, an
+            // `img` loads into the app cache, which keeps every image.
+            div()
                 .flex_1()
                 .child(
                     uniform_list("books", rows, move |range, _, cx| {
@@ -341,16 +366,17 @@ impl Render for LibraryView {
                             .map(|row| {
                                 let start = row * columns;
                                 let end = (start + columns).min(books.len());
-                                div().flex().gap(px(GAP)).px(px(MARGIN)).children(
+                                div().flex().gap(px(GAP)).px(px(side)).children(
                                     books[start..end]
                                         .iter()
-                                        .map(|book| card(book, view.clone(), cx)),
+                                        .map(|book| card(book, &covers, view.clone(), cx)),
                                 )
                             })
                             .collect()
                     })
                     .size_full()
-                    .pt(px(GAP)),
+                    .pt(px(GAP_TOP))
+                    .pb(px(MARGIN)),
                 )
                 .into_any_element()
         };
@@ -369,7 +395,12 @@ impl Render for LibraryView {
     }
 }
 
-fn card(book: &BookEntry, view: WeakEntity<LibraryView>, cx: &App) -> impl IntoElement {
+fn card(
+    book: &BookEntry,
+    covers: &Entity<BoundedImageCache>,
+    view: WeakEntity<LibraryView>,
+    cx: &App,
+) -> impl IntoElement {
     let theme = cx.theme();
     let store = cx.global::<Store>();
     let cover = cover_path(store.covers(), &book.id);
@@ -398,7 +429,12 @@ fn card(book: &BookEntry, view: WeakEntity<LibraryView>, cx: &App) -> impl IntoE
         .bg(theme.muted)
         .map(|frame| {
             if has_cover {
-                frame.child(img(cover).size_full().object_fit(ObjectFit::Cover))
+                frame.child(
+                    img(cover)
+                        .image_cache(covers)
+                        .size_full()
+                        .object_fit(ObjectFit::Cover),
+                )
             } else {
                 frame
                     .flex()

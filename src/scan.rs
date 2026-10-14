@@ -3,11 +3,13 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use book_buddy::book::Book;
+use book_buddy::dither::{Adjust, dots};
 use book_buddy::library::FileInfo;
 use chrono::{DateTime, Utc};
 use gpui::{App, AppContext, AsyncApp};
 
 use crate::store::{Store, cover_path};
+use crate::style;
 
 /// Cover thumbnails are made at 2x the size in the library grid.
 pub const COVER_WIDTH: u32 = 160;
@@ -17,34 +19,40 @@ pub const COVER_HEIGHT: u32 = 240;
 pub fn book_file(path: &Path, covers: &Path) -> Result<(Book, FileInfo)> {
     let book = Book::open(path)?;
     let metadata = fs::metadata(path)?;
-    let info = FileInfo {
+    let mut info = FileInfo {
         id: book.id.clone(),
         path: path.to_path_buf(),
         size: metadata.len(),
         modified: metadata.modified()?.into(),
         title: book.title.clone(),
         author: book.authors.join(", "),
+        cover_adjust: Adjust::NONE,
     };
     let cover = cover_path(covers, &book.id);
-    if !cover.exists()
-        && let Err(e) = write_cover(&book, &cover)
-    {
-        log::warn!("no cover for {}: {e:#}", path.display());
+    if !cover.exists() {
+        match write_cover(&book, &cover) {
+            Ok(adjust) => info.cover_adjust = adjust,
+            Err(e) => log::warn!("no cover for {}: {e:#}", path.display()),
+        }
     }
     Ok((book, info))
 }
 
-fn write_cover(book: &Book, cover: &Path) -> Result<()> {
+/// Writes the thumbnail and returns the auto levels for it.
+fn write_cover(book: &Book, cover: &Path) -> Result<Adjust> {
     let Some(href) = &book.cover else {
-        return Ok(());
+        return Ok(Adjust::NONE);
     };
     let image = image::load_from_memory(&book.resource(href)?)?;
     let thumbnail = image.thumbnail(COVER_WIDTH * 2, COVER_HEIGHT * 2);
     if let Some(dir) = cover.parent() {
         fs::create_dir_all(dir)?;
     }
-    thumbnail.to_rgba8().save(cover)?;
-    Ok(())
+    let thumbnail = thumbnail.to_rgba8();
+    thumbnail.save(cover)?;
+    let mut adjust = Adjust::NONE;
+    (adjust.black, adjust.white) = adjust.auto_levels(&dots(&thumbnail, style::DITHER_CELL));
+    Ok(adjust)
 }
 
 /// Scans the watched folders in the background. The library updates as books are found.

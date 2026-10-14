@@ -40,6 +40,11 @@ impl BoundedImageCache {
         cache
     }
 
+    /// The cache shrinks to `capacity` at the next load.
+    pub fn set_capacity(&mut self, capacity: usize) {
+        self.capacity = capacity;
+    }
+
     /// Images load with `filter` from now on. The images of `paths` load again.
     pub fn set_filter(&mut self, filter: Filter, paths: &[PathBuf], cx: &mut App) {
         self.filter = Some(filter);

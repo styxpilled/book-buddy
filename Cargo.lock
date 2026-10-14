@@ -765,6 +765,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "ego-tree",
+ "embed-resource",
  "env_logger",
  "fast_image_resize",
  "futures",

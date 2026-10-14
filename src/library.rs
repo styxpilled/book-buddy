@@ -178,6 +178,8 @@ pub struct FileInfo {
     pub modified: DateTime<Utc>,
     pub title: String,
     pub author: String,
+    /// For a new entry.
+    pub cover_adjust: Adjust,
 }
 
 impl Default for Library {
@@ -331,7 +333,7 @@ impl Library {
                     percent: 0.,
                     hidden: false,
                     missing: false,
-                    cover_adjust: Adjust::NONE,
+                    cover_adjust: info.cover_adjust,
                     custom_title: None,
                     custom_author: None,
                 });
@@ -419,6 +421,7 @@ mod tests {
             modified: time(100),
             title: "Title".into(),
             author: "Author".into(),
+            cover_adjust: Adjust::NONE,
         }
     }
 
