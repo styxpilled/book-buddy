@@ -27,9 +27,6 @@ pub fn init(cx: &mut App) {
     cx.text_system()
         .add_fonts(fonts.into_iter().map(Cow::Borrowed).collect())
         .expect("bundled fonts must load");
-
-    let mode = Theme::global(cx).mode;
-    set_theme(mode, Tint::DRAWN, cx);
 }
 
 /// Colors with less saturation than this are neutral and take the tint of the

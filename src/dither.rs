@@ -1,5 +1,5 @@
+use image::RgbaImage;
 use image::imageops::{self, FilterType};
-use image::{Rgba, RgbaImage};
 use serde::{Deserialize, Serialize};
 
 const BAYER: [[u8; 8]; 8] = bayer();
@@ -214,13 +214,25 @@ pub fn dither_small(
         Method::FloydSteinberg => diffuse(&mut tones, width, height, FLOYD_STEINBERG),
     };
     let mut out = RgbaImage::new(small.width() * cell, small.height() * cell);
-    for (ix, is_light) in light_dots.into_iter().enumerate() {
-        let (x, y) = ((ix % width) as u32, (ix / width) as u32);
-        let [r, g, b] = if is_light { light } else { dark };
-        for dy in 0..cell {
-            for dx in 0..cell {
-                out.put_pixel(x * cell + dx, y * cell + dy, Rgba([r, g, b, 255]));
+    if width == 0 {
+        return out;
+    }
+    let cell = cell as usize;
+    let row = width * cell * 4;
+    // Each band of `cell` rows is one row of dots: fill its first row, then copy it.
+    for (band, dots) in out
+        .chunks_exact_mut(row * cell)
+        .zip(light_dots.chunks_exact(width))
+    {
+        let (first, rest) = band.split_at_mut(row);
+        for (block, &is_light) in first.chunks_exact_mut(cell * 4).zip(dots) {
+            let [r, g, b] = if is_light { light } else { dark };
+            for pixel in block.chunks_exact_mut(4) {
+                pixel.copy_from_slice(&[r, g, b, 255]);
             }
+        }
+        for line in rest.chunks_exact_mut(row) {
+            line.copy_from_slice(first);
         }
     }
     out
@@ -279,6 +291,7 @@ fn diffuse(tones: &mut [f32], width: usize, height: usize, kernel: Kernel) -> Ve
 #[cfg(test)]
 mod tests {
     use super::*;
+    use image::Rgba;
 
     const DARK: [u8; 3] = [0, 0, 0];
     const LIGHT: [u8; 3] = [255, 255, 255];

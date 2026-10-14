@@ -272,16 +272,18 @@ fn layout(blocks: &[Block]) -> Layout {
     {
         return Layout::Title;
     }
-    let paragraphs: Vec<_> = blocks
-        .iter()
-        .filter(|b| matches!(b.kind, BlockKind::Paragraph { .. }))
-        .collect();
-    let short = paragraphs
-        .iter()
-        .filter(|b| b.text().chars().count() <= VERSE_LINE)
-        .count();
-    let spaced = paragraphs.iter().any(|b| b.gap > 0);
-    if paragraphs.len() >= 3 && short * 10 >= paragraphs.len() * 8 && spaced {
+    let (mut paragraphs, mut short, mut spaced) = (0, 0, false);
+    for block in blocks {
+        if let BlockKind::Paragraph { runs } = &block.kind {
+            paragraphs += 1;
+            let chars: usize = runs.iter().map(|r| r.text.chars().count()).sum();
+            if chars <= VERSE_LINE {
+                short += 1;
+            }
+            spaced |= block.gap > 0;
+        }
+    }
+    if paragraphs >= 3 && short * 10 >= paragraphs * 8 && spaced {
         Layout::Verse
     } else {
         Layout::Prose

@@ -63,7 +63,8 @@ fn title_key(title: &str) -> String {
     ["the ", "an ", "a "]
         .iter()
         .find_map(|article| title.strip_prefix(article))
-        .map_or(title.clone(), |rest| rest.trim_start().to_string())
+        .map(|rest| rest.trim_start().to_string())
+        .unwrap_or(title)
 }
 
 impl Sort {
@@ -81,10 +82,10 @@ impl Sort {
     fn apply(self, books: &mut [BookEntry]) {
         match self {
             Sort::LastOpened => books.sort_by_key(|b| Reverse((b.last_opened, b.added))),
-            Sort::Title => books.sort_by_key(|b| title_key(b.shown_title())),
-            Sort::Author => {
-                books.sort_by_key(|b| (b.shown_author().to_lowercase(), title_key(b.shown_title())))
-            }
+            Sort::Title => books.sort_by_cached_key(|b| title_key(b.shown_title())),
+            Sort::Author => books.sort_by_cached_key(|b| {
+                (b.shown_author().to_lowercase(), title_key(b.shown_title()))
+            }),
             Sort::Added => books.sort_by_key(|b| Reverse(b.added)),
         }
     }

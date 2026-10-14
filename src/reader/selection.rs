@@ -90,19 +90,29 @@ impl Reader {
         let text = item.styled_text(theme, search.into_iter().chain(selected));
         let layout = text.layout().clone();
 
-        let links: Vec<(Range<usize>, String)> = item
+        let link_ranges: Vec<Range<usize>> = item
             .styles
             .iter()
-            .filter_map(|(range, run)| Some((range.clone(), run.link.clone()?)))
+            .filter(|(_, run)| run.link.is_some())
+            .map(|(range, _)| range.clone())
             .collect();
-        let link_ranges: Vec<_> = links.iter().map(|(range, _)| range.clone()).collect();
-        let text = if links.is_empty() {
+        let text = if link_ranges.is_empty() {
             text.into_any_element()
         } else {
             let view = view.clone();
             InteractiveText::new(("text", ix), text)
                 .on_click(link_ranges.clone(), move |link, _, cx| {
-                    view.update(cx, |reader, cx| reader.follow(&links[link].1, cx));
+                    view.update(cx, |reader, cx| {
+                        let href = reader.items[ix]
+                            .styles
+                            .iter()
+                            .filter_map(|(_, run)| run.link.as_ref())
+                            .nth(link)
+                            .cloned();
+                        if let Some(href) = href {
+                            reader.follow(&href, cx);
+                        }
+                    });
                 })
                 .into_any_element()
         };
