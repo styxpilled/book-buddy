@@ -566,7 +566,11 @@ impl Reader {
         self.waiting = self
             .images_near(position)
             .into_iter()
-            .filter(|href| matches!(self.pictures[href].decode, Decode::Running))
+            .filter(|href| {
+                self.pictures
+                    .get(href)
+                    .is_some_and(|picture| matches!(picture.decode, Decode::Running))
+            })
             .collect();
         if !self.waiting.is_empty() {
             cx.spawn(async move |this, cx| {
