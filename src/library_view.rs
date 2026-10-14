@@ -623,4 +623,37 @@ mod tests {
         assert_eq!(title_key("Anna Karenina"), "anna karenina");
         assert_eq!(title_key("A"), "a");
     }
+
+    #[test]
+    fn sorts_are_stable() {
+        let entry = |id: &str, title: &str, author: &str| -> BookEntry {
+            serde_json::from_value(serde_json::json!({
+                "id": id,
+                "path": format!("{id}.epub"),
+                "size": 0,
+                "modified": "2026-01-01T00:00:00Z",
+                "title": title,
+                "author": author,
+                "added": "2026-01-01T00:00:00Z",
+            }))
+            .unwrap()
+        };
+        let mut custom = entry("d", "Zebra", "Austen");
+        custom.custom_title = Some("Emma".into());
+        let books = vec![
+            entry("f", "Anna", "austen"),
+            entry("b", "hound", "Doyle"),
+            custom,
+            entry("a", "The Hound", "Doyle"),
+            entry("e", "An Ideal Husband", "Wilde"),
+            entry("c", "A Study", "Doyle"),
+        ];
+        let sorted = |sort: Sort| {
+            let mut books = books.clone();
+            sort.apply(&mut books);
+            books.into_iter().map(|b| b.id).collect::<Vec<_>>()
+        };
+        assert_eq!(sorted(Sort::Title), ["f", "d", "b", "a", "e", "c"]);
+        assert_eq!(sorted(Sort::Author), ["f", "d", "b", "a", "c", "e"]);
+    }
 }

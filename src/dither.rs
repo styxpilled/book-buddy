@@ -282,6 +282,34 @@ mod tests {
 
     const DARK: [u8; 3] = [0, 0, 0];
     const LIGHT: [u8; 3] = [255, 255, 255];
+    /// `dither_small` output for each method, adjustment and cell in
+    /// `output_is_unchanged`, recorded at 2eded73.
+    const OUTPUT_HASHES: [u64; 24] = [
+        0xd2e952461d4c4268,
+        0x2b779e17df5c6075,
+        0x55f38971f4ae8440,
+        0xf5c395f05ede8b65,
+        0x1e76459170e3614a,
+        0xab6d8006832e8425,
+        0x64b525f39f1351aa,
+        0x7d6a932615e7f725,
+        0x927af4af49ede132,
+        0x4be8ef2fc833ba45,
+        0xd1a93ad5590c6352,
+        0xd3bd0ea384d303a5,
+        0xc06fd45684402d3a,
+        0x93dd6d34af227485,
+        0x6883d505988b0222,
+        0x84a82c2b056f67a5,
+        0x1f3c7a1a8055f188,
+        0xffc53efebd068c75,
+        0xbad52150825c5fb0,
+        0xd3ec193f1bb64165,
+        0x156f277292247afa,
+        0xe176fe125f8ef9a5,
+        0x68dad190212036aa,
+        0xc99b78d50e75b25,
+    ];
 
     fn dark_share(gray: u8) -> f32 {
         adjusted_dark_share([gray; 3], Adjust::NONE)
@@ -410,5 +438,36 @@ mod tests {
             assert_eq!(adjusted_dark_share([255; 3], adjust), 0.);
             assert!((adjusted_dark_share([128; 3], adjust) - 0.5).abs() < 0.05);
         }
+    }
+
+    #[test]
+    fn output_is_unchanged() {
+        let image = RgbaImage::from_fn(37, 23, |x, y| {
+            let alpha = if (x + y) % 9 == 0 { 0 } else { 255 };
+            Rgba([(x * 7) as u8, (y * 11) as u8, ((x + y) * 5) as u8, alpha])
+        });
+        let adjusted = Adjust {
+            black: 10,
+            white: 90,
+            midtones: 30,
+            contrast: -20,
+            hues: [40, 0, 0, -30, 0, 0, 0, 0],
+            ..Adjust::NONE
+        };
+        let mut hashes = Vec::new();
+        for method in [Method::Bayer, Method::Atkinson, Method::FloydSteinberg] {
+            for base in [Adjust::NONE, adjusted] {
+                for cell in 1..=4 {
+                    let adjust = Adjust { method, ..base };
+                    let out = dither_small(&image, cell, &adjust, [10, 20, 30], [200, 210, 220]);
+                    assert_eq!(out.dimensions(), (37 * cell, 23 * cell));
+                    let hash = out.as_raw().iter().fold(0xcbf29ce484222325u64, |hash, &b| {
+                        (hash ^ b as u64).wrapping_mul(0x100000001b3)
+                    });
+                    hashes.push(hash);
+                }
+            }
+        }
+        assert_eq!(hashes, OUTPUT_HASHES, "{hashes:#x?}");
     }
 }
