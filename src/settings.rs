@@ -1,20 +1,24 @@
 use book_buddy::library::{FONT_SIZES, Font, Mode, Settings, Theme};
 use gpui::{
     AnyElement, App, AppContext, BorrowAppContext, Context, Div, Entity, EventEmitter, FocusHandle,
-    Focusable, InteractiveElement, IntoElement, KeyBinding, ParentElement, PathPromptOptions,
-    Render, SharedString, Stateful, StatefulInteractiveElement, Styled, Subscription, Window,
-    actions, div, prelude::FluentBuilder, px,
+    Focusable, Global, InteractiveElement, IntoElement, KeyBinding, ParentElement,
+    PathPromptOptions, Render, SharedString, Stateful, StatefulInteractiveElement, Styled,
+    Subscription, Window, actions, div, prelude::FluentBuilder, px,
 };
+use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
 use gpui_kit::component::{ActiveTheme, ThemeMode};
 
 use crate::Back;
 use crate::menu::{self, Dismiss, Menu, MenuItem};
 use crate::scan;
 use crate::store::Store;
-use crate::style;
+use crate::style::{self, Tint};
 
 const PANEL_WIDTH: f32 = 500.;
 const LABEL_WIDTH: f32 = 110.;
+/// The hue of the theme as drawn, for the slider when the setting is `None`.
+const DRAWN_HUE: u16 = 47;
+const MAX_SATURATION: u16 = 400;
 
 actions!(settings, [OpenSettings, FontLarger, FontSmaller]);
 
@@ -51,23 +55,60 @@ pub fn change(cx: &mut App, f: impl FnOnce(&mut Settings)) {
     }
 }
 
+/// The theme mode and tint that are installed.
+#[derive(Default, PartialEq)]
+struct AppliedTheme(Option<(ThemeMode, Tint)>);
+
+impl Global for AppliedTheme {}
+
 fn apply_theme(cx: &mut App) {
-    let mode = match cx.global::<Store>().library.settings.theme {
+    let settings = &cx.global::<Store>().library.settings;
+    let mode = match settings.theme {
         Theme::Light => ThemeMode::Light,
         Theme::Dark => ThemeMode::Dark,
     };
-    if cx.theme().mode != mode {
-        gpui_kit::component::Theme::change(mode, None, cx);
+    let wanted = (mode, tint(settings));
+    let applied = cx.default_global::<AppliedTheme>().0;
+    if applied != Some(wanted) {
+        style::set_theme(wanted.0, wanted.1, cx);
+        cx.set_global(AppliedTheme(Some(wanted)));
+        // Tones of the other mode would not show on this background.
+        if applied.map(|(mode, _)| mode) != Some(mode) {
+            style::redither(cx);
+        }
+    }
+}
+
+fn tint(settings: &Settings) -> Tint {
+    Tint {
+        hue: settings.hue,
+        saturation: settings.saturation,
+    }
+}
+
+/// Shows a tint while a slider moves, without saving it.
+fn preview_tint(tint: Tint, cx: &mut App) {
+    let mode = cx.theme().mode;
+    if cx.default_global::<AppliedTheme>().0 != Some((mode, tint)) {
+        style::set_theme(mode, tint, cx);
+        cx.set_global(AppliedTheme(Some((mode, tint))));
+        cx.refresh_windows();
     }
 }
 
 pub struct SettingsPanel {
     focus: FocusHandle,
+    hue: Entity<SliderState>,
+    saturation: Entity<SliderState>,
+    /// The tint of the sliders while one moves.
+    shown_tint: Option<Tint>,
     font_menu: Option<(Entity<Menu>, Subscription)>,
+    /// CLEAR LIBRARY was clicked once and waits for a second click.
+    confirm_clear: bool,
     /// `.epub` files open in this exe.
     #[cfg(target_os = "windows")]
     associated: bool,
-    _subscription: Subscription,
+    _subscriptions: Vec<Subscription>,
 }
 
 pub struct CloseSettings;
@@ -82,13 +123,70 @@ impl Focusable for SettingsPanel {
 
 impl SettingsPanel {
     pub fn new(cx: &mut Context<Self>) -> Self {
+        let tint = tint(&cx.global::<Store>().library.settings);
+        let slider = |max: u16, step: u16, value: u16, cx: &mut Context<Self>| {
+            cx.new(|_| {
+                SliderState::new()
+                    .min(0.)
+                    .max(max as f32)
+                    .step(step as f32)
+                    .default_value(value as f32)
+            })
+        };
+        let hue = slider(359, 1, tint.hue.unwrap_or(DRAWN_HUE), cx);
+        let saturation = slider(MAX_SATURATION, 5, tint.saturation, cx);
+        let subscriptions = vec![
+            cx.observe_global::<Store>(|_, cx| cx.notify()),
+            cx.subscribe(&hue, |panel, _, event: &SliderEvent, cx| {
+                panel.slid(event, |tint, hue| tint.hue = Some(hue), cx)
+            }),
+            cx.subscribe(&saturation, |panel, _, event: &SliderEvent, cx| {
+                panel.slid(event, |tint, saturation| tint.saturation = saturation, cx)
+            }),
+        ];
         Self {
             focus: cx.focus_handle(),
+            hue,
+            saturation,
+            shown_tint: None,
             font_menu: None,
+            confirm_clear: false,
             #[cfg(target_os = "windows")]
             associated: crate::association::registered(),
-            _subscription: cx.observe_global::<Store>(|_, cx| cx.notify()),
+            _subscriptions: subscriptions,
         }
+    }
+
+    /// A slider shows its tint while it moves, and saves it when released.
+    fn slid(&mut self, event: &SliderEvent, set: fn(&mut Tint, u16), cx: &mut Context<Self>) {
+        let mut shown = self
+            .shown_tint
+            .unwrap_or_else(|| tint(&cx.global::<Store>().library.settings));
+        let (SliderEvent::Change(value) | SliderEvent::Release(value)) = event;
+        set(&mut shown, value.end().round() as u16);
+        if let SliderEvent::Change(_) = event {
+            self.shown_tint = Some(shown);
+            preview_tint(shown, cx);
+        } else {
+            self.shown_tint = None;
+            change(cx, |s| {
+                s.hue = shown.hue;
+                s.saturation = shown.saturation;
+            });
+        }
+    }
+
+    fn drawn_tint(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        change(cx, |s| {
+            s.hue = Tint::DRAWN.hue;
+            s.saturation = Tint::DRAWN.saturation;
+        });
+        self.hue.update(cx, |slider, cx| {
+            slider.set_value(DRAWN_HUE as f32, window, cx)
+        });
+        self.saturation.update(cx, |slider, cx| {
+            slider.set_value(Tint::DRAWN.saturation as f32, window, cx)
+        });
     }
 
     fn close(&mut self, _: &Back, _: &mut Window, cx: &mut Context<Self>) {
@@ -137,6 +235,24 @@ impl SettingsPanel {
     #[cfg(not(target_os = "windows"))]
     fn association(&self, _: &mut Context<Self>) -> Option<AnyElement> {
         None
+    }
+
+    /// Clears the library on the second click.
+    fn clear_button(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+        let text = if self.confirm_clear {
+            "CLICK AGAIN TO CLEAR"
+        } else {
+            "CLEAR LIBRARY"
+        };
+        style::button("clear-library", text, self.confirm_clear, cx).on_click(cx.listener(
+            |panel, _, _, cx| {
+                if panel.confirm_clear {
+                    cx.update_global(|store: &mut Store, _| store.clear_library());
+                }
+                panel.confirm_clear = !panel.confirm_clear;
+                cx.notify();
+            },
+        ))
     }
 
     fn add_folder(&mut self, cx: &mut Context<Self>) {
@@ -211,6 +327,31 @@ fn enabled_button(
     }
 }
 
+/// The dot font has no `%`, so a unit is in the label font.
+fn slider_row(
+    slider: &Entity<SliderState>,
+    value: String,
+    unit: &'static str,
+    cx: &App,
+) -> impl IntoElement {
+    div()
+        .flex_1()
+        .flex()
+        .items_center()
+        .gap(px(10.))
+        .child(div().flex_1().child(Slider::new(slider)))
+        .child(
+            div()
+                .w(px(52.))
+                .flex()
+                .items_baseline()
+                .justify_end()
+                .gap(px(2.))
+                .child(style::dot(value, 16.))
+                .child(style::label(unit, cx)),
+        )
+}
+
 fn row(label: &'static str, control: impl IntoElement, cx: &App) -> impl IntoElement {
     div()
         .flex()
@@ -223,10 +364,12 @@ fn row(label: &'static str, control: impl IntoElement, cx: &App) -> impl IntoEle
 impl Render for SettingsPanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let association = self.association(cx);
+        let clear = self.clear_button(cx);
         let theme = cx.theme();
         let library = &cx.global::<Store>().library;
         let settings = library.settings.clone();
         let folders = library.folders.clone();
+        let shown = self.shown_tint.unwrap_or_else(|| tint(&settings));
 
         let size = div()
             .flex()
@@ -246,8 +389,7 @@ impl Render for SettingsPanel {
                 style::button("larger", "+", false, cx),
                 settings.font_size < *FONT_SIZES.end(),
                 |cx| change(cx, |s| s.font_size += 1),
-            ))
-            .child(style::label("CTRL+= / CTRL+-", cx));
+            ));
 
         let font = div()
             .relative()
@@ -299,10 +441,15 @@ impl Render for SettingsPanel {
             .child(style::label("WATCHED FOLDERS", cx))
             .children(folder_rows)
             .child(
-                div().flex().pt(px(4.)).child(
-                    style::button("add-folder", "+ ADD FOLDER", false, cx)
-                        .on_click(cx.listener(|panel, _, _, cx| panel.add_folder(cx))),
-                ),
+                div()
+                    .flex()
+                    .justify_between()
+                    .pt(px(4.))
+                    .child(
+                        style::button("add-folder", "+ ADD FOLDER", false, cx)
+                            .on_click(cx.listener(|panel, _, _, cx| panel.add_folder(cx))),
+                    )
+                    .child(clear),
             );
 
         let panel = div()
@@ -343,6 +490,38 @@ impl Render for SettingsPanel {
                     |s, v| s.theme = v,
                     cx,
                 ),
+                cx,
+            ))
+            .child(row(
+                "HUE =",
+                slider_row(
+                    &self.hue,
+                    shown.hue.unwrap_or(DRAWN_HUE).to_string(),
+                    "",
+                    cx,
+                ),
+                cx,
+            ))
+            .child(row(
+                "SATURATION =",
+                slider_row(&self.saturation, shown.saturation.to_string(), "%", cx),
+                cx,
+            ))
+            .child(row(
+                "",
+                div()
+                    .flex()
+                    .gap(px(10.))
+                    .child(
+                        style::button("drawn-tint", "DEFAULT", shown == Tint::DRAWN, cx).on_click(
+                            cx.listener(|panel, _, window, cx| panel.drawn_tint(window, cx)),
+                        ),
+                    )
+                    .child(enabled_button(
+                        style::button("redither", "RE-DITHER", false, cx),
+                        style::tones(cx) != style::theme_tones(cx),
+                        style::redither,
+                    )),
                 cx,
             ))
             .child(row("FONT =", font, cx))

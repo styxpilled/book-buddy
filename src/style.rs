@@ -5,10 +5,10 @@ use std::borrow::Cow;
 use std::rc::Rc;
 
 use gpui::{
-    App, Div, ElementId, Hsla, InteractiveElement, IntoElement, ParentElement, PathBuilder,
+    App, Div, ElementId, Global, Hsla, InteractiveElement, IntoElement, ParentElement, PathBuilder,
     SharedString, Stateful, Styled, canvas, div, prelude::FluentBuilder, px, relative,
 };
-use gpui_kit::component::{ActiveTheme, Theme, ThemeSet};
+use gpui_kit::component::{ActiveTheme, Theme, ThemeMode, ThemeSet};
 
 /// The dot-matrix font for numbers.
 pub const DOT: &str = "DotGothic16";
@@ -25,8 +25,48 @@ pub fn init(cx: &mut App) {
         .add_fonts(fonts.into_iter().map(Cow::Borrowed).collect())
         .expect("bundled fonts must load");
 
-    let set: ThemeSet = serde_json::from_str(include_str!("../assets/themes/monochrome.json"))
-        .expect("bundled theme must parse");
+    let mode = Theme::global(cx).mode;
+    set_theme(mode, Tint::DRAWN, cx);
+}
+
+/// Colors with less saturation than this are neutral and take the tint of the
+/// settings. The others, as success and danger, keep their color.
+const NEUTRAL: f32 = 0.25;
+
+/// A change to the neutral colors of the theme.
+#[derive(Clone, Copy, PartialEq)]
+pub struct Tint {
+    /// Degrees, or `None` for the hue of each color as drawn.
+    pub hue: Option<u16>,
+    /// Percent of the saturation of each color as drawn.
+    pub saturation: u16,
+}
+
+impl Tint {
+    pub const DRAWN: Tint = Tint {
+        hue: None,
+        saturation: 100,
+    };
+}
+
+/// Installs the theme with `tint` on its neutral colors.
+pub fn set_theme(mode: ThemeMode, tint: Tint, cx: &mut App) {
+    let mut json: serde_json::Value =
+        serde_json::from_str(include_str!("../assets/themes/monochrome.json"))
+            .expect("bundled theme must parse");
+    if let (true, Some(themes)) = (tint != Tint::DRAWN, json["themes"].as_array_mut()) {
+        for theme in themes {
+            let Some(colors) = theme["colors"].as_object_mut() else {
+                continue;
+            };
+            for value in colors.values_mut() {
+                if let Some(color) = value.as_str().and_then(|c| tinted(c, tint)) {
+                    *value = color.into();
+                }
+            }
+        }
+    }
+    let set: ThemeSet = serde_json::from_value(json).expect("bundled theme must parse");
     let theme = Theme::global_mut(cx);
     for config in set.themes {
         if config.mode.is_dark() {
@@ -35,12 +75,54 @@ pub fn init(cx: &mut App) {
             theme.light_theme = Rc::new(config);
         }
     }
-    let mode = theme.mode;
     Theme::change(mode, None, cx);
 }
 
+/// A `#rrggbb` or `#rrggbbaa` color with `tint`, if it is neutral.
+fn tinted(hex: &str, tint: Tint) -> Option<String> {
+    let digits = hex.strip_prefix('#')?;
+    let value = u32::from_str_radix(digits, 16).ok()?;
+    let (rgb, alpha) = match digits.len() {
+        6 => (value, None),
+        8 => (value >> 8, Some(value & 0xff)),
+        _ => return None,
+    };
+    let mut color: Hsla = gpui::rgb(rgb).into();
+    if color.s >= NEUTRAL {
+        return None;
+    }
+    if let Some(hue) = tint.hue {
+        color.h = hue as f32 / 360.;
+    }
+    color.s = (color.s * tint.saturation as f32 / 100.).min(1.);
+    let [r, g, b] = self::rgb(color);
+    Some(match alpha {
+        Some(a) => format!("#{r:02x}{g:02x}{b:02x}{a:02x}"),
+        None => format!("#{r:02x}{g:02x}{b:02x}"),
+    })
+}
+
+/// The tones that images are dithered to. A new hue does not change them
+/// until `redither`, because dithering every image again is slow.
+struct DitherTones(([u8; 3], [u8; 3]));
+
+impl Global for DitherTones {}
+
 /// The two tones of a dithered image, dark first, as RGB.
 pub fn tones(cx: &App) -> ([u8; 3], [u8; 3]) {
+    cx.try_global::<DitherTones>()
+        .map(|tones| tones.0)
+        .unwrap_or_else(|| theme_tones(cx))
+}
+
+/// Dithers the images to the tones of the theme.
+pub fn redither(cx: &mut App) {
+    cx.set_global(DitherTones(theme_tones(cx)));
+    cx.refresh_windows();
+}
+
+/// The two tones of the theme, dark first, as RGB.
+pub fn theme_tones(cx: &App) -> ([u8; 3], [u8; 3]) {
     let theme = cx.theme();
     let (ink, paper) = (rgb(theme.foreground), rgb(theme.background));
     if theme.is_dark() {
@@ -220,4 +302,26 @@ pub fn crop_marks(cx: &App) -> impl Iterator<Item = Div> {
             .border_r_1(),
     ]
     .into_iter()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tint_changes_only_neutral_colors() {
+        let tint = |hue, saturation| Tint { hue, saturation };
+        let channels =
+            |hex: String| [1, 3, 5].map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap());
+        let [r, _, b] = channels(tinted("#dddbd4", tint(Some(220), 100)).unwrap());
+        assert!(b > r);
+        let [r, g, b] = channels(tinted("#dddbd4", tint(None, 0)).unwrap());
+        assert!(r == g && g == b);
+        assert!(
+            tinted("#1b1b1a40", tint(Some(220), 100))
+                .unwrap()
+                .ends_with("40")
+        );
+        assert_eq!(tinted("#a33a2c", tint(Some(220), 100)), None);
+    }
 }

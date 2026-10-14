@@ -112,6 +112,11 @@ pub struct Settings {
     pub hide_bars: bool,
     /// Dither the images of books to the two tones of the theme, like the covers.
     pub dither_images: bool,
+    /// The hue of the neutral theme colors in degrees. `None` keeps the theme
+    /// as drawn.
+    pub hue: Option<u16>,
+    /// Percent of the saturation of the neutral theme colors as drawn.
+    pub saturation: u16,
 }
 
 pub const FONT_SIZES: RangeInclusive<u32> = 12..=36;
@@ -126,6 +131,8 @@ impl Default for Settings {
             show_hidden: false,
             hide_bars: false,
             dither_images: true,
+            hue: None,
+            saturation: 100,
         }
     }
 }
@@ -259,6 +266,13 @@ impl Library {
             kept.added = added;
         }
         self.books = merged;
+    }
+
+    /// Removes all books and watched folders. The settings stay.
+    pub fn clear(&mut self) {
+        self.books.clear();
+        self.folders.clear();
+        self.last_book = None;
     }
 
     pub fn book(&self, id: &str) -> Option<&BookEntry> {
@@ -423,6 +437,19 @@ mod tests {
             author: "Author".into(),
             cover_adjust: Adjust::NONE,
         }
+    }
+
+    #[test]
+    fn clear_keeps_the_settings() {
+        let mut library = Library::default();
+        library.settings.font_size = 30;
+        library.folders.push("C:\\Books".into());
+        library.add(info("a", "C:\\Books\\a.epub"), time(100));
+        library.last_book = Some("a".into());
+        library.clear();
+        assert!(library.books.is_empty() && library.folders.is_empty());
+        assert_eq!(library.last_book, None);
+        assert_eq!(library.settings.font_size, 30);
     }
 
     #[test]

@@ -1,3 +1,5 @@
+use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use book_buddy::library::Library;
@@ -47,6 +49,21 @@ impl Store {
         let id = self.library.last_book.as_deref()?;
         let path = &self.library.book(id)?.path;
         path.exists().then(|| path.clone())
+    }
+
+    /// Removes all books, their cover thumbnails and the watched folders. The
+    /// book files stay.
+    pub fn clear_library(&mut self) {
+        for book in &self.library.books {
+            let cover = cover_path(&self.covers, &book.id);
+            if let Err(e) = fs::remove_file(&cover)
+                && e.kind() != ErrorKind::NotFound
+            {
+                log::warn!("{}: {e}", cover.display());
+            }
+        }
+        self.library.clear();
+        self.save();
     }
 
     pub fn covers(&self) -> &Path {

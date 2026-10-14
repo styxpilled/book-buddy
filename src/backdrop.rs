@@ -60,9 +60,12 @@ pub fn backdrop(window: &mut Window, cx: &mut App) -> impl IntoElement + use<> {
         dots(f32::from(viewport.width)),
         dots(f32::from(viewport.height)),
     );
-    let theme = cx.theme();
-    let paper = style::rgb(theme.background);
-    let ink = style::rgb(theme.foreground);
+    let (dark, light) = style::tones(cx);
+    let (paper, ink) = if cx.theme().is_dark() {
+        (dark, light)
+    } else {
+        (light, dark)
+    };
     let look = Look {
         paper,
         dots: [0, 1, 2].map(|i| mix(paper[i], ink[i], CONTRAST)),
