@@ -1,10 +1,17 @@
 #!/bin/sh
 # Builds "target/release/Book Buddy.app". macOS only.
-#   scripts/bundle.sh
+#   scripts/bundle.sh            the app only
+#   scripts/bundle.sh --dmg      also target/release/Book-Buddy.dmg
+#   scripts/bundle.sh --install  also copies the app to /Applications
 # The app opens .epub files from Finder ("Open With"). It does not become the
 # default app for them unless the user chooses it.
 set -e
 cd "$(dirname "$0")/.."
+
+case "$1" in
+    "" | --dmg | --install) ;;
+    *) echo "usage: scripts/bundle.sh [--dmg | --install]" >&2; exit 1 ;;
+esac
 
 cargo build --release
 version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
@@ -62,3 +69,22 @@ EOF
 # An ad-hoc signature. Apple Silicon does not run unsigned code.
 codesign --force --sign - "$app"
 echo "$app"
+
+case "$1" in
+    --dmg)
+        # The disk image holds the app and a link to Applications to drag it to.
+        dmg=target/release/Book-Buddy.dmg
+        staging=$(mktemp -d)
+        cp -R "$app" "$staging/"
+        ln -s /Applications "$staging/Applications"
+        rm -f "$dmg"
+        hdiutil create -quiet -volname "Book Buddy" -srcfolder "$staging" -format UDZO "$dmg"
+        rm -rf "$staging"
+        echo "$dmg"
+        ;;
+    --install)
+        rm -rf "/Applications/Book Buddy.app"
+        cp -R "$app" /Applications/
+        echo "/Applications/Book Buddy.app"
+        ;;
+esac

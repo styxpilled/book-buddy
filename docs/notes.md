@@ -30,5 +30,6 @@
 ## macOS app
 
 - `scripts/bundle.sh` builds `target/release/Book Buddy.app`, with an ad-hoc signature.
+- `.github/workflows/release.yml` builds `Book-Buddy.dmg` on a Mac. A pushed `v*` tag attaches it to a GitHub release.
 - `python3 scripts/icon.py` writes the icons. `assets/icon.icns` needs `iconutil`, so run it on macOS.
 - Finder sends the files to open as URLs (`on_open_urls` in `main.rs`), also to a running app. macOS keeps one instance of an app bundle.
