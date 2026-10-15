@@ -1,0 +1,32 @@
+# Builds Book-Buddy.dmg on a Mac. A pushed tag like v0.2.0 attaches it to a
+# GitHub release. A manual run ("Run workflow") keeps it as an artifact only.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      # gpui compiles Metal shaders. Newer Xcode versions download the
+      # compiler separately.
+      - name: Metal compiler
+        run: xcrun -f metal || xcodebuild -downloadComponent MetalToolchain
+      - name: Build
+        run: scripts/bundle.sh --dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Book-Buddy-dmg
+          path: target/release/Book-Buddy.dmg
+      - if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: target/release/Book-Buddy.dmg
