@@ -15,6 +15,7 @@ use gpui::{
 };
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{InputEvent, InputState};
+use gpui_kit::component::scroll::ScrollbarHandle;
 use gpui_kit::component::{ActiveTheme, Sizable};
 
 mod backdrop;
@@ -26,6 +27,7 @@ use crate::Import;
 use crate::scan::{COVER_HEIGHT, COVER_WIDTH};
 use crate::settings::OpenSettings;
 use crate::store::{Store, cover_path};
+use crate::ui::autoscroll::{self, Autoscroll};
 use crate::ui::menu::{self, Dismiss, Menu, MenuItem};
 use crate::ui::style;
 use backdrop::backdrop;
@@ -105,6 +107,7 @@ pub struct LibraryView {
     scroll: UniformListScrollHandle,
     /// A book opened in the last opened order, so it is now the first card.
     scroll_to_top: bool,
+    autoscroll: Option<Autoscroll>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -145,6 +148,7 @@ impl LibraryView {
             menu: None,
             scroll: UniformListScrollHandle::new(),
             scroll_to_top: false,
+            autoscroll: None,
             _subscriptions: subscriptions,
         }
     }
@@ -181,6 +185,17 @@ impl LibraryView {
             _dismiss: dismiss,
         });
         cx.notify();
+    }
+
+    fn autoscroll_frame(&mut self, window: &Window) {
+        let Some(step) = self.autoscroll.as_mut().map(|a| a.step(window)) else {
+            return;
+        };
+        let max = (self.scroll.content_size().height - self.scroll.viewport_bounds().size.height)
+            .max(px(0.));
+        let mut offset = self.scroll.offset();
+        offset.y = (offset.y - step).max(-max).min(px(0.));
+        self.scroll.set_offset(offset);
     }
 
     /// The open menu, if it is the sort menu or not as `sort` says.
@@ -331,6 +346,7 @@ fn cover_filter(
 
 impl Render for LibraryView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.autoscroll_frame(window);
         let tones = style::tones(cx);
         let adjusts = cover_adjusts(cx);
         if tones != self.tones {
@@ -383,7 +399,15 @@ impl Render for LibraryView {
             // `image_cache` parent is not in scope. Without its own cache, an
             // `img` loads into the app cache, which keeps every image.
             div()
+                .relative()
                 .flex_1()
+                .on_mouse_down(
+                    MouseButton::Middle,
+                    cx.listener(|this, event: &gpui::MouseDownEvent, _, cx| {
+                        this.autoscroll = Some(Autoscroll::new(event.position));
+                        cx.notify();
+                    }),
+                )
                 .child(
                     uniform_list("books", rows, move |range, _, cx| {
                         range
@@ -403,6 +427,7 @@ impl Render for LibraryView {
                     .pt(px(GAP_TOP))
                     .pb(px(MARGIN)),
                 )
+                .child(autoscroll::scrollbar(&self.scroll))
                 .into_any_element()
         };
 
@@ -417,6 +442,11 @@ impl Render for LibraryView {
             .child(self.render_header(count, window, cx))
             .child(body)
             .children(self.render_menu(false, window))
+            .children(
+                self.autoscroll
+                    .is_some()
+                    .then(|| autoscroll::overlay(|this: &mut Self| &mut this.autoscroll, cx)),
+            )
     }
 }
 

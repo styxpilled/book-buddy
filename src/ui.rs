@@ -3,6 +3,7 @@ use std::sync::Arc;
 use gpui::RenderImage;
 use image::{Frame, RgbaImage};
 
+pub(crate) mod autoscroll;
 pub(crate) mod menu;
 pub(crate) mod style;
 pub(crate) mod title_bar;

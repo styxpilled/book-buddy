@@ -13,9 +13,9 @@ use chrono::Utc;
 use gpui::{
     AnyElement, App, AppContext, BorrowAppContext, Context, Entity, EventEmitter, FocusHandle,
     Focusable, FontStyle, FontWeight, HighlightStyle, Hsla, InteractiveElement, IntoElement,
-    KeyBinding, ListAlignment, ListOffset, ListState, MouseButton, MouseMoveEvent, ParentElement,
-    Render, RenderImage, SharedString, Styled, StyledText, Subscription, Task, UnderlineStyle,
-    UniformListScrollHandle, Window, actions, combine_highlights, div, img, list,
+    KeyBinding, ListAlignment, ListOffset, ListState, MouseButton, MouseDownEvent, MouseMoveEvent,
+    ParentElement, Render, RenderImage, SharedString, Styled, StyledText, Subscription, Task,
+    UnderlineStyle, UniformListScrollHandle, Window, actions, combine_highlights, div, img, list,
     prelude::FluentBuilder, px, relative,
 };
 use gpui_kit::component::{ActiveTheme, Theme};
@@ -30,6 +30,7 @@ mod toc;
 
 use crate::scan;
 use crate::store::Store;
+use crate::ui::autoscroll::{self, Autoscroll};
 use crate::ui::title_bar;
 use crate::{Back, HistoryBack, HistoryForward};
 use images::{Decode, Picture, Tones, image_tones};
@@ -298,6 +299,8 @@ pub struct Reader {
     redraw: bool,
     /// The left button went down on the seek bar and is not up yet.
     seeking: bool,
+    /// Only in the scroll mode.
+    autoscroll: Option<Autoscroll>,
     font: Font,
     font_size: f32,
     mode: Mode,
@@ -370,6 +373,7 @@ impl Reader {
             bottom_bar: false,
             redraw: false,
             seeking: false,
+            autoscroll: None,
             font,
             font_size,
             mode,
@@ -1177,6 +1181,13 @@ fn load_chapter(book: &Book, index: usize) -> Loaded {
 impl Render for Reader {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.painted.borrow_mut().clear();
+        if self.paged() {
+            self.autoscroll = None;
+        } else if let Some(step) = self.autoscroll.as_mut().map(|a| a.step(window))
+            && step != px(0.)
+        {
+            self.scroll_by(f32::from(step), cx);
+        }
         let tones = image_tones(cx);
         if tones != self.tones {
             self.tones = tones;
@@ -1242,15 +1253,34 @@ impl Render for Reader {
             Status::Ready if self.paged() => pages.unwrap_or_else(|| div().into_any_element()),
             Status::Ready => {
                 let view = cx.entity();
-                list(self.list.clone(), move |ix, window, cx| {
-                    let (element, decode) = view.read(cx).render_item(ix, &view, window, cx);
-                    if let Some(href) = decode {
-                        view.update(cx, |reader, cx| reader.decode(&href, cx));
-                    }
-                    element
-                })
-                .size_full()
-                .into_any_element()
+                div()
+                    .relative()
+                    .size_full()
+                    .on_mouse_down(
+                        MouseButton::Middle,
+                        cx.listener(|reader, event: &MouseDownEvent, _, cx| {
+                            reader.autoscroll = Some(Autoscroll::new(event.position));
+                            cx.notify();
+                        }),
+                    )
+                    // A drag of the scrollbar does not call the scroll handler.
+                    .on_mouse_up(
+                        MouseButton::Left,
+                        cx.listener(|reader, _, _, cx| reader.schedule_save(cx)),
+                    )
+                    .child(
+                        list(self.list.clone(), move |ix, window, cx| {
+                            let (element, decode) =
+                                view.read(cx).render_item(ix, &view, window, cx);
+                            if let Some(href) = decode {
+                                view.update(cx, |reader, cx| reader.decode(&href, cx));
+                            }
+                            element
+                        })
+                        .size_full(),
+                    )
+                    .child(autoscroll::scrollbar(&self.list))
+                    .into_any_element()
             }
         };
         let (background, foreground) = (theme.background, theme.foreground);
@@ -1342,5 +1372,10 @@ impl Render for Reader {
             .children(bottom_bar)
             .children(float_top)
             .children(self.drag_listener(cx))
+            .children(
+                self.autoscroll
+                    .is_some()
+                    .then(|| autoscroll::overlay(|reader: &mut Self| &mut reader.autoscroll, cx)),
+            )
     }
 }
