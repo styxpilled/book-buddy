@@ -279,9 +279,9 @@ impl Render for Shell {
             (None, _, Some((view, _))) => view.clone().into_any_element(),
             _ => self.library.clone().into_any_element(),
         };
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
         let title_bar = crate::ui::title_bar::render(window, cx);
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
         let title_bar = None::<gpui::Empty>;
         div()
             .relative()

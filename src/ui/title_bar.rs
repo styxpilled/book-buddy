@@ -1,5 +1,6 @@
-//! The title bar. On Windows the app draws it, in place of the system title
-//! bar. Other systems keep their own.
+//! The title bar. On Windows and macOS the app draws it in the theme colors,
+//! in place of the system title bar. macOS keeps its window buttons on it.
+//! Other systems keep their own.
 
 use gpui::Window;
 
@@ -7,7 +8,7 @@ const HEIGHT: f32 = 30.;
 
 /// The height of the title bar that the app draws. A fullscreen window has none.
 pub fn height(window: &Window) -> f32 {
-    if cfg!(target_os = "windows") && !window.is_fullscreen() {
+    if cfg!(any(target_os = "windows", target_os = "macos")) && !window.is_fullscreen() {
         HEIGHT
     } else {
         0.
@@ -75,5 +76,40 @@ pub fn render(window: &Window, cx: &gpui::App) -> Option<impl gpui::IntoElement 
                 .child(mark(7., 7.)),
         )
         .child(close);
+    Some(bar)
+}
+
+/// The left part is free for the window buttons of macOS.
+#[cfg(target_os = "macos")]
+pub fn render(window: &Window, cx: &gpui::App) -> Option<impl gpui::IntoElement + use<>> {
+    use gpui::{InteractiveElement, MouseButton, ParentElement, Styled, div, px, relative};
+    use gpui_kit::component::ActiveTheme;
+
+    if window.is_fullscreen() {
+        return None;
+    }
+    let theme = cx.theme();
+    let bar = div()
+        .id("title-bar")
+        .flex_none()
+        .h(px(HEIGHT))
+        .flex()
+        .items_center()
+        .justify_center()
+        .bg(theme.background)
+        .text_color(theme.foreground)
+        .border_b_1()
+        .border_color(theme.border)
+        .font_family(theme.font_family.clone())
+        .text_size(px(11.))
+        .line_height(relative(1.))
+        .on_mouse_down(MouseButton::Left, |event, window, _| {
+            if event.click_count == 2 {
+                window.titlebar_double_click();
+            } else {
+                window.start_window_move();
+            }
+        })
+        .child("[ BOOK BUDDY ]");
     Some(bar)
 }

@@ -141,9 +141,13 @@ fn open_main_window(path: Option<PathBuf>, cx: &mut App) -> WindowHandle<Root> {
                 .into(),
             ),
             // The app draws its own title bar.
-            appears_transparent: cfg!(target_os = "windows"),
+            appears_transparent: cfg!(any(target_os = "windows", target_os = "macos")),
+            // In the middle of the title bar that the app draws.
+            traffic_light_position: cfg!(target_os = "macos").then(|| point(px(12.), px(9.))),
             ..Default::default()
         }),
+        // The title bar moves the window itself, so clicks on it have no delay.
+        app_owns_titlebar_drag: cfg!(target_os = "macos"),
         window_bounds: Some(window_bounds),
         display_id,
         ..Default::default()
