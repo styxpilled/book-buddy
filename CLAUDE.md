@@ -15,3 +15,7 @@ This is book-buddy - a lightweight epub reader.
 ## Additional info
 
 Any changes you haven't made are probably deliberate. If your build fails because I'm running the app, don't try to work around that. Simply report the work done and ask if I want you to test any behavior you've just implemented.
+
+## Issue tracker
+
+Issues and specs for this repo live as markdown files in `.scratch/`. See `/docs/issue-tracker.md`.
