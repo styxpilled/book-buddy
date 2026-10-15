@@ -24,9 +24,9 @@ actions!(settings, [OpenSettings, FontLarger, FontSmaller]);
 
 pub fn init(cx: &mut App) {
     cx.bind_keys([
-        KeyBinding::new("ctrl-,", OpenSettings, None),
-        KeyBinding::new("ctrl-=", FontLarger, None),
-        KeyBinding::new("ctrl--", FontSmaller, None),
+        KeyBinding::new("secondary-,", OpenSettings, None),
+        KeyBinding::new("secondary-=", FontLarger, None),
+        KeyBinding::new("secondary--", FontSmaller, None),
         KeyBinding::new("escape", Back, Some("Settings")),
     ]);
     cx.on_action(|_: &FontLarger, cx| change(cx, |s| s.font_size += 1));

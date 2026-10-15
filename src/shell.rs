@@ -257,7 +257,8 @@ impl Shell {
     fn import_dialog(&mut self, _: &Import, _: &mut Window, cx: &mut Context<Self>) {
         let paths = cx.prompt_for_paths(PathPromptOptions {
             files: true,
-            directories: false,
+            // The Windows dialog cannot pick files and folders together.
+            directories: cfg!(target_os = "macos"),
             multiple: true,
             prompt: Some("Add books".into()),
         });
@@ -310,7 +311,7 @@ impl Render for Shell {
     }
 }
 
-fn save_window_state(window: &Window, cx: &mut App) {
+pub fn save_window_state(window: &Window, cx: &mut App) {
     let (bounds, maximized, fullscreen) = match window.window_bounds() {
         WindowBounds::Windowed(bounds) => (bounds, false, false),
         WindowBounds::Maximized(bounds) => (bounds, true, false),

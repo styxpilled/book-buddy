@@ -88,7 +88,22 @@ pub fn cover_path(covers: &Path, id: &str) -> PathBuf {
     covers.join(format!("{}.png", id.replace(':', "-")))
 }
 
+/// The data is in Application Support. Dev builds use a separate directory.
+#[cfg(target_os = "macos")]
+fn data_dir() -> PathBuf {
+    let name = if cfg!(debug_assertions) {
+        "book-buddy-dev"
+    } else {
+        "book-buddy"
+    };
+    std::env::home_dir()
+        .unwrap_or_default()
+        .join("Library/Application Support")
+        .join(name)
+}
+
 /// The app is portable: its data is next to the exe.
+#[cfg(not(target_os = "macos"))]
 fn data_dir() -> PathBuf {
     let exe = std::env::current_exe().unwrap_or_default();
     exe.parent()

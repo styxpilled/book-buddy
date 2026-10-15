@@ -76,10 +76,19 @@ pub fn start(cx: &mut App) {
     .detach();
 }
 
-/// Adds files from the open dialog or from drag-and-drop.
+/// Adds files from the open dialog or from drag-and-drop. Folders are
+/// searched with their subfolders.
 pub fn import(paths: Vec<PathBuf>, cx: &mut App) {
     cx.spawn(async move |cx| {
-        for path in paths.into_iter().filter(|p| is_epub(p)) {
+        let files = cx
+            .background_spawn(async move {
+                let (dirs, files): (Vec<_>, Vec<_>) = paths.into_iter().partition(|p| p.is_dir());
+                let mut files: Vec<_> = files.into_iter().filter(|p| is_epub(p)).collect();
+                files.extend(epub_files(&dirs).into_iter().map(|(path, ..)| path));
+                files
+            })
+            .await;
+        for path in files {
             add(path, cx).await;
         }
     })
@@ -109,9 +118,15 @@ fn update_missing(cx: &mut AsyncApp) {
     });
 }
 
+/// macOS writes `._` files next to the real files on some drives.
 fn is_epub(path: &Path) -> bool {
-    path.extension()
-        .is_some_and(|e| e.eq_ignore_ascii_case("epub"))
+    let apple_double = path
+        .file_name()
+        .is_some_and(|n| n.to_string_lossy().starts_with("._"));
+    !apple_double
+        && path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("epub"))
 }
 
 fn epub_files(folders: &[PathBuf]) -> Vec<(PathBuf, u64, DateTime<Utc>)> {
@@ -137,4 +152,35 @@ fn epub_files(folders: &[PathBuf]) -> Vec<(PathBuf, u64, DateTime<Utc>)> {
         }
     }
     files
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finds_books_in_subfolders() {
+        let dir = std::env::temp_dir().join(format!("book-buddy-scan-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("a/b")).unwrap();
+        for file in [
+            "top.epub",
+            "a/mid.EPUB",
+            "a/b/deep.epub",
+            "a/b/._deep.epub",
+            "a/notes.txt",
+        ] {
+            fs::write(dir.join(file), b"").unwrap();
+        }
+        let mut found: Vec<_> = epub_files(&[dir.clone()])
+            .into_iter()
+            .map(|(path, ..)| path.strip_prefix(&dir).unwrap().to_path_buf())
+            .collect();
+        found.sort();
+        assert_eq!(
+            found,
+            ["a/b/deep.epub", "a/mid.EPUB", "top.epub"].map(PathBuf::from)
+        );
+        fs::remove_dir_all(&dir).unwrap();
+    }
 }

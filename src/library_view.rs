@@ -380,7 +380,11 @@ impl Render for LibraryView {
         let body = if books.is_empty() {
             let empty = cx.global::<Store>().library.books.is_empty();
             let message = if empty {
-                "No books yet. Drop .epub files here, or press Ctrl+O."
+                if cfg!(target_os = "macos") {
+                    "No books yet. Drop .epub files here, or press Cmd+O."
+                } else {
+                    "No books yet. Drop .epub files here, or press Ctrl+O."
+                }
             } else {
                 "No books match."
             };

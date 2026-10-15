@@ -5,7 +5,7 @@ use book_buddy::book::BlockKind;
 use book_buddy::library::{Font, Mode, Position};
 use gpui::{
     AnyElement, AvailableSpace, Context, Hsla, InteractiveElement, IntoElement, ParentElement,
-    ScrollDelta, ScrollWheelEvent, Styled, TextRun, Window, div, font, px, size,
+    ScrollDelta, ScrollWheelEvent, Styled, TextRun, TouchPhase, Window, div, font, px, size,
 };
 use gpui_kit::component::ActiveTheme;
 
@@ -18,6 +18,8 @@ use super::{
 const RESIZE_DELAY: Duration = Duration::from_millis(150);
 /// Wheel distance in pixels for one page turn.
 const WHEEL_TURN: f32 = 60.;
+/// Sideways trackpad distance in pixels for one page turn.
+const SWIPE_TURN: f32 = 50.;
 
 /// A line of usual text, to measure the mean width of a character.
 const SAMPLE: &str = "It is a truth universally acknowledged, that a single man in possession of a good fortune, must be in want of a wife.";
@@ -83,6 +85,9 @@ pub(super) struct Pages {
     /// A new window size and when it was first seen.
     resized: Option<(Geometry, Instant)>,
     wheel: f32,
+    /// The sideways distance of the trackpad swipe in progress. `None` when
+    /// no swipe is in progress, or when the swipe already turned a page.
+    swipe: Option<f32>,
     estimate: Estimate,
 }
 
@@ -157,11 +162,29 @@ impl Reader {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let delta = match event.delta {
-            ScrollDelta::Lines(lines) => lines.y * WHEEL_TURN,
-            ScrollDelta::Pixels(pixels) => f32::from(pixels.y),
+        let (x, y) = match event.delta {
+            ScrollDelta::Lines(lines) => (lines.x * WHEEL_TURN, lines.y * WHEEL_TURN),
+            ScrollDelta::Pixels(pixels) => (f32::from(pixels.x), f32::from(pixels.y)),
         };
-        self.pages.wheel += delta;
+        // A swipe turns one page. The momentum events after it do nothing.
+        match event.touch_phase {
+            TouchPhase::Started => self.pages.swipe = Some(0.),
+            TouchPhase::Ended | TouchPhase::Cancelled => self.pages.swipe = None,
+            TouchPhase::Moved => {}
+        }
+        if x.abs() > y.abs() {
+            if let Some(swipe) = &mut self.pages.swipe {
+                *swipe += x;
+                if swipe.abs() >= SWIPE_TURN {
+                    // A negative delta moves the text left, to later pages.
+                    let turns = if *swipe > 0. { -1 } else { 1 };
+                    self.pages.swipe = None;
+                    self.turn(turns, cx);
+                }
+            }
+            return;
+        }
+        self.pages.wheel += y;
         if self.pages.wheel.abs() >= WHEEL_TURN {
             // A positive delta moves the text down, back to earlier pages.
             let turns = if self.pages.wheel > 0. { -1 } else { 1 };
