@@ -161,12 +161,13 @@ impl Sim {
                 }
                 "ok".to_string()
             }
-            "click" | "dblclick" | "rclick" | "mclick" | "bclick" => {
+            "click" | "dblclick" | "rclick" | "mclick" | "bclick" | "fclick" => {
                 let at = coordinates::<2>(value)?;
                 let button = match kind {
                     "rclick" => MouseButton::Right,
                     "mclick" => MouseButton::Middle,
                     "bclick" => MouseButton::Navigate(NavigationDirection::Back),
+                    "fclick" => MouseButton::Navigate(NavigationDirection::Forward),
                     _ => MouseButton::Left,
                 };
                 self.move_to((at[0], at[1]), handle, cx)?;

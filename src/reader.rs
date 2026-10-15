@@ -3,7 +3,7 @@ use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
 use std::mem;
 use std::ops::Range;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -28,10 +28,10 @@ mod search;
 mod selection;
 mod toc;
 
-use crate::Back;
 use crate::scan;
 use crate::store::Store;
 use crate::ui::title_bar;
+use crate::{Back, HistoryBack, HistoryForward};
 use images::{Decode, Picture, Tones, image_tones};
 use pages::Pages;
 use search::Search;
@@ -77,7 +77,6 @@ actions!(
         BookStart,
         BookEnd,
         ToggleToc,
-        GoBack,
         OpenSearch,
         NextMatch,
         PreviousMatch,
@@ -101,7 +100,6 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("ctrl-home", BookStart, context),
         KeyBinding::new("ctrl-end", BookEnd, context),
         KeyBinding::new("t", ToggleToc, context),
-        KeyBinding::new("alt-left", GoBack, context),
         KeyBinding::new("ctrl-f", OpenSearch, context),
         KeyBinding::new("f3", NextMatch, context),
         KeyBinding::new("shift-f3", PreviousMatch, context),
@@ -260,6 +258,7 @@ enum Adjust {
 }
 
 pub struct Reader {
+    path: PathBuf,
     status: Status,
     book: Option<Arc<Book>>,
     book_id: Option<String>,
@@ -272,8 +271,10 @@ pub struct Reader {
     /// A place to go to when its chapter is loaded: the saved position, or a jump.
     pending: Option<Target>,
     adjust: Option<Adjust>,
-    /// Positions before link jumps, for Alt+Left.
+    /// Positions before jumps: links, search, contents and the seek bar.
     back: Vec<Position>,
+    /// Positions that back left.
+    forward: Vec<Position>,
     save_task: Option<Task<()>>,
     pictures: HashMap<String, Picture>,
     /// The tones that images are dithered to, dark and light. `None` keeps
@@ -307,6 +308,11 @@ pub struct Reader {
 
 pub enum ReaderEvent {
     Close,
+    /// A jump recorded a position, so the forward history is no longer valid.
+    Jumped,
+    /// Back or forward with no position in the book to go to.
+    HistoryBack,
+    HistoryForward,
 }
 
 impl EventEmitter<ReaderEvent> for Reader {}
@@ -335,6 +341,7 @@ impl Reader {
         let (font, font_size) = (settings.font, settings.font_size as f32);
         let (mode, hide_bars) = (settings.mode, settings.hide_bars);
         let mut reader = Self {
+            path: path.clone(),
             status: Status::Loading,
             book: None,
             book_id: None,
@@ -346,6 +353,7 @@ impl Reader {
             pending: None,
             adjust: None,
             back: Vec::new(),
+            forward: Vec::new(),
             save_task: None,
             pictures: HashMap::new(),
             tones: image_tones(cx),
@@ -521,6 +529,10 @@ impl Reader {
         cx.notify();
     }
 
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
     /// The book is not ready to show yet.
     pub fn loading(&self) -> bool {
         matches!(self.status, Status::Loading)
@@ -638,9 +650,7 @@ impl Reader {
             return;
         };
         let anchor = fragment.map(str::to_string);
-        if let Some(position) = self.position() {
-            self.back.push(position);
-        }
+        self.record_jump(cx);
         self.go_to(
             Target {
                 spine,
@@ -651,9 +661,35 @@ impl Reader {
         );
     }
 
-    fn go_back(&mut self, _: &GoBack, _: &mut Window, cx: &mut Context<Self>) {
-        if let Some(position) = self.back.pop() {
+    /// Records the position before a jump.
+    pub(super) fn record_jump(&mut self, cx: &mut Context<Self>) {
+        if let Some(position) = self.position() {
+            self.back.push(position);
+            self.forward.clear();
+            cx.emit(ReaderEvent::Jumped);
+        }
+    }
+
+    fn history_back(&mut self, _: &HistoryBack, window: &mut Window, cx: &mut Context<Self>) {
+        if self.search.open {
+            self.close_search(window, cx);
+        } else if self.toc_open {
+            self.toc_open = false;
+            cx.notify();
+        } else if let Some(position) = self.back.pop() {
+            self.forward.extend(self.position());
             self.go_to(position.into(), cx);
+        } else {
+            cx.emit(ReaderEvent::HistoryBack);
+        }
+    }
+
+    fn history_forward(&mut self, _: &HistoryForward, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(position) = self.forward.pop() {
+            self.back.extend(self.position());
+            self.go_to(position.into(), cx);
+        } else {
+            cx.emit(ReaderEvent::HistoryForward);
         }
     }
 
@@ -1243,6 +1279,8 @@ impl Render for Reader {
         // of the reader do not take the characters that you type.
         div()
             .id("reader-root")
+            .on_action(cx.listener(Self::history_back))
+            .on_action(cx.listener(Self::history_forward))
             .on_mouse_move(cx.listener(Self::mouse_moved))
             .capture_any_mouse_down(cx.listener(|reader, _, _, cx| reader.clear_selection(cx)))
             .on_mouse_up(
@@ -1268,7 +1306,6 @@ impl Render for Reader {
                             .track_focus(&self.focus)
                             .on_action(cx.listener(Self::back))
                             .on_action(cx.listener(Self::toggle_toc))
-                            .on_action(cx.listener(Self::go_back))
                             .on_action(cx.listener(Self::open_search))
                             .on_action(cx.listener(Self::copy))
                             .on_action(cx.listener(Self::next_match))

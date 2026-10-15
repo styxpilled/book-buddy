@@ -12,6 +12,7 @@ use gpui::{
 use gpui_kit::component::ActiveTheme;
 
 use super::style;
+use crate::{HistoryBack, HistoryForward};
 
 const ITEM_HEIGHT: f32 = 26.;
 
@@ -176,6 +177,8 @@ impl Render for Menu {
             .id("menu")
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::key_down))
+            .on_action(cx.listener(|_, _: &HistoryBack, _, cx| cx.emit(Dismiss)))
+            .on_action(|_: &HistoryForward, _, _| {})
             .relative()
             .min_w(px(160.))
             .text_size(px(11.))

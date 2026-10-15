@@ -25,7 +25,10 @@ use gpui_kit::component::Root;
 use shell::Shell;
 use store::Store;
 
-actions!(book_buddy, [Back, Import, ToggleFullscreen]);
+actions!(
+    book_buddy,
+    [Back, HistoryBack, HistoryForward, Import, ToggleFullscreen]
+);
 
 fn main() {
     env_logger::init();
@@ -52,6 +55,8 @@ fn main() {
                 KeyBinding::new("escape", Back, Some("Reader")),
                 KeyBinding::new("escape", Back, Some("CoverAdjust")),
                 KeyBinding::new("escape", Back, Some("Details")),
+                KeyBinding::new("alt-left", HistoryBack, None),
+                KeyBinding::new("alt-right", HistoryForward, None),
                 KeyBinding::new("ctrl-o", Import, None),
                 KeyBinding::new("f11", ToggleFullscreen, None),
             ]);

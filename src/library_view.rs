@@ -1,5 +1,6 @@
 use std::cmp::Reverse;
 use std::collections::HashMap;
+use std::mem;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -9,8 +10,8 @@ use book_buddy::library::BookEntry;
 use gpui::{
     App, AppContext, Context, Div, Entity, EventEmitter, FocusHandle, Focusable,
     InteractiveElement, IntoElement, MouseButton, ObjectFit, ParentElement, Pixels, Point, Render,
-    SharedString, StatefulInteractiveElement, Styled, StyledImage, Subscription, WeakEntity,
-    Window, div, img, prelude::*, px, relative, uniform_list,
+    ScrollStrategy, SharedString, StatefulInteractiveElement, Styled, StyledImage, Subscription,
+    UniformListScrollHandle, WeakEntity, Window, div, img, prelude::*, px, relative, uniform_list,
 };
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -100,6 +101,10 @@ pub struct LibraryView {
     /// The adjustments of the covers in `covers`, by cover path.
     adjusts: Arc<HashMap<PathBuf, Adjust>>,
     menu: Option<OpenMenu>,
+    /// The scroll stays while a book or cover adjust is on screen.
+    scroll: UniformListScrollHandle,
+    /// A book opened in the last opened order, so it is now the first card.
+    scroll_to_top: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -138,7 +143,22 @@ impl LibraryView {
             tones,
             adjusts,
             menu: None,
+            scroll: UniformListScrollHandle::new(),
+            scroll_to_top: false,
             _subscriptions: subscriptions,
+        }
+    }
+
+    pub fn book_opened(&mut self) {
+        if self.sort == Sort::LastOpened {
+            self.scroll_to_top = true;
+        }
+    }
+
+    /// The library is on screen again after a book.
+    pub fn shown(&mut self) {
+        if mem::take(&mut self.scroll_to_top) {
+            self.scroll.scroll_to_item(0, ScrollStrategy::Top);
         }
     }
 
@@ -378,6 +398,7 @@ impl Render for LibraryView {
                             })
                             .collect()
                     })
+                    .track_scroll(&self.scroll)
                     .size_full()
                     .pt(px(GAP_TOP))
                     .pb(px(MARGIN)),

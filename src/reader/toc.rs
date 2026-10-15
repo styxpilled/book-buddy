@@ -56,6 +56,7 @@ impl Reader {
     fn open_toc_entry(&mut self, ix: usize, cx: &mut Context<Self>) {
         if let Some(target) = self.toc_target(ix) {
             self.toc_open = false;
+            self.record_jump(cx);
             self.go_to(target, cx);
         }
     }

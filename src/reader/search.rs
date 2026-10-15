@@ -29,6 +29,9 @@ const AFTER: usize = 80;
 #[derive(Default)]
 pub(super) struct Search {
     pub(super) open: bool,
+    /// A result was shown since the search opened. Only the first one records
+    /// a position.
+    jumped: bool,
     input: Option<Entity<InputState>>,
     query: String,
     results: Vec<Match>,
@@ -85,6 +88,7 @@ impl Reader {
         };
         if !self.search.open {
             self.search.open = true;
+            self.search.jumped = false;
             self.list.remeasure();
         }
         input.update(cx, |input, cx| {
@@ -170,6 +174,10 @@ impl Reader {
     }
 
     fn show_match(&mut self, ix: usize, cx: &mut Context<Self>) {
+        if !self.search.jumped {
+            self.search.jumped = true;
+            self.record_jump(cx);
+        }
         let found = &self.search.results[ix];
         let item = &self.items[found.item];
         let into = item.text[..found.range.start].chars().count();

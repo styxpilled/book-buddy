@@ -21,6 +21,7 @@
 #   mclick:<x>,<y>           click the middle button at a point
 #   rclick:<x>,<y>           click the right button at a point
 #   bclick:<x>,<y>           click the back button (XBUTTON1) at a point
+#   fclick:<x>,<y>           click the forward button (XBUTTON2) at a point
 #   mdown:<x>,<y>            press the middle button at a point
 #   mup                      release the middle button
 #   scroll:<x>,<y>,<notches> turn the wheel over a point inside the window.
@@ -235,6 +236,11 @@ try {
             'bclick' {
                 $x, $y = $value -split ',', 2
                 Click-InWindow $application ([int]$x) ([int]$y) 1 0x0080 0x0100 1
+                Start-Sleep -Milliseconds $SettleMs
+            }
+            'fclick' {
+                $x, $y = $value -split ',', 2
+                Click-InWindow $application ([int]$x) ([int]$y) 1 0x0080 0x0100 2
                 Start-Sleep -Milliseconds $SettleMs
             }
             { $_ -in 'down', 'mdown' } {

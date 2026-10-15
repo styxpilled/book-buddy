@@ -135,6 +135,7 @@ impl Reader {
                     {
                         view.update(cx, |reader, cx| {
                             reader.seeking = true;
+                            reader.record_jump(cx);
                             reader.seek_to(to_percent(event.position.x), cx);
                         });
                     }

@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use book_buddy::library::WindowState;
 use gpui::{
-    App, AppContext, BorrowAppContext, Context, DispatchPhase, Entity, ExternalPaths, Focusable,
-    InteractiveElement, IntoElement, Keystroke, MouseButton, MouseDownEvent, NavigationDirection,
+    Action, App, AppContext, BorrowAppContext, Context, DispatchPhase, Entity, ExternalPaths,
+    Focusable, InteractiveElement, IntoElement, MouseButton, MouseDownEvent, NavigationDirection,
     ParentElement, PathPromptOptions, Render, Styled, Subscription, Window, WindowBounds, canvas,
     div,
 };
@@ -15,15 +15,26 @@ use crate::reader::{Reader, ReaderEvent};
 use crate::scan;
 use crate::settings::{CloseSettings, OpenSettings, SettingsPanel};
 use crate::store::Store;
-use crate::{Import, ToggleFullscreen};
+use crate::{HistoryBack, HistoryForward, Import, ToggleFullscreen};
+
+/// An entry of the window history.
+#[derive(Clone, PartialEq)]
+enum View {
+    Library,
+    Book(PathBuf),
+}
 
 /// The root view. It shows the library or one book.
 pub struct Shell {
     library: Entity<LibraryView>,
     reader: Option<Entity<Reader>>,
+    /// The book on screen while `reader` loads the next one.
+    previous: Option<Entity<Reader>>,
     cover_adjust: Option<(Entity<CoverAdjust>, Subscription)>,
     details: Option<(Entity<DetailsDialog>, Subscription)>,
     settings: Option<(Entity<SettingsPanel>, Subscription)>,
+    back: Vec<View>,
+    forward: Vec<View>,
     _subscriptions: Vec<Subscription>,
     _reader_subscriptions: Vec<Subscription>,
 }
@@ -40,9 +51,12 @@ impl Shell {
         let mut shell = Self {
             library,
             reader: None,
+            previous: None,
             cover_adjust: None,
             details: None,
             settings: None,
+            back: Vec::new(),
+            forward: Vec::new(),
             _subscriptions: vec![subscription],
             _reader_subscriptions: Vec::new(),
         };
@@ -57,15 +71,98 @@ impl Shell {
         shell
     }
 
+    /// Opens a book as a new history entry.
     pub fn open(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
-        self.close(window, cx);
-        let reader = cx.new(|cx| Reader::new(path, cx));
+        let view = View::Book(path);
+        self.record(view.clone(), cx);
+        self.show(view, window, cx);
+    }
+
+    fn current(&self, cx: &App) -> View {
+        match &self.reader {
+            Some(reader) => View::Book(reader.read(cx).path().to_path_buf()),
+            None => View::Library,
+        }
+    }
+
+    /// Adds the current view to the history before a change to `next`.
+    fn record(&mut self, next: View, cx: &App) {
+        let current = self.current(cx);
+        if current != next {
+            self.back.push(current);
+        }
+        self.forward.clear();
+    }
+
+    fn show(&mut self, view: View, window: &mut Window, cx: &mut Context<Self>) {
+        match view {
+            View::Library => self.close(window, cx),
+            View::Book(path) => self.show_book(path, window, cx),
+        }
+    }
+
+    fn history_back(&mut self, _: &HistoryBack, window: &mut Window, cx: &mut Context<Self>) {
+        if self.settings.is_some() {
+            self.close_settings(window, cx);
+        } else if self.details.is_some() {
+            self.close_details(window, cx);
+        } else if self.cover_adjust.is_some() {
+            self.close_cover_adjust(window, cx);
+        } else if let Some(view) = self.back.pop() {
+            self.forward.push(self.current(cx));
+            self.show(view, window, cx);
+        }
+    }
+
+    fn history_forward(&mut self, _: &HistoryForward, window: &mut Window, cx: &mut Context<Self>) {
+        let overlay =
+            self.settings.is_some() || self.details.is_some() || self.cover_adjust.is_some();
+        if !overlay && let Some(view) = self.forward.pop() {
+            self.back.push(self.current(cx));
+            self.show(view, window, cx);
+        }
+    }
+
+    fn show_book(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        let reader = match self
+            .previous
+            .take_if(|previous| previous.read(cx).path() == path)
+        {
+            Some(previous) => {
+                if let Some(reader) = self.reader.take() {
+                    reader.update(cx, |reader, cx| reader.close(window, cx));
+                }
+                previous
+            }
+            None => {
+                if let Some(reader) = self.reader.take() {
+                    if reader.read(cx).loading() {
+                        reader.update(cx, |reader, cx| reader.close(window, cx));
+                    } else {
+                        self.previous = Some(reader);
+                    }
+                }
+                self.library.update(cx, |library, _| library.book_opened());
+                cx.new(|cx| Reader::new(path, cx))
+            }
+        };
         self._reader_subscriptions = vec![
             cx.subscribe_in(&reader, window, |this, _, event, window, cx| match event {
-                ReaderEvent::Close => this.close(window, cx),
+                ReaderEvent::Close => {
+                    this.record(View::Library, cx);
+                    this.close(window, cx);
+                }
+                ReaderEvent::Jumped => this.forward.clear(),
+                ReaderEvent::HistoryBack => this.history_back(&HistoryBack, window, cx),
+                ReaderEvent::HistoryForward => this.history_forward(&HistoryForward, window, cx),
             }),
-            // The library stays until the book is ready.
-            cx.observe(&reader, |_, _, cx| cx.notify()),
+            // The library or the previous book stays until the book is ready.
+            cx.observe_in(&reader, window, |this, reader, window, cx| {
+                if !reader.read(cx).loading() {
+                    this.close_previous(window, cx);
+                }
+                cx.notify();
+            }),
         ];
         reader.focus_handle(cx).focus(window, cx);
         self.reader = Some(reader);
@@ -79,11 +176,7 @@ impl Shell {
         let subscription = cx.subscribe_in(
             &view,
             window,
-            |this, _, _: &CloseCoverAdjust, window, cx| {
-                this.cover_adjust = None;
-                this.library.focus_handle(cx).focus(window, cx);
-                cx.notify();
-            },
+            |this, _, _: &CloseCoverAdjust, window, cx| this.close_cover_adjust(window, cx),
         );
         view.focus_handle(cx).focus(window, cx);
         self.cover_adjust = Some((view, subscription));
@@ -96,12 +189,22 @@ impl Shell {
         };
         let subscription =
             cx.subscribe_in(&dialog, window, |this, _, _: &CloseDetails, window, cx| {
-                this.details = None;
-                this.library.focus_handle(cx).focus(window, cx);
-                cx.notify();
+                this.close_details(window, cx)
             });
         dialog.focus_handle(cx).focus(window, cx);
         self.details = Some((dialog, subscription));
+        cx.notify();
+    }
+
+    fn close_cover_adjust(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.cover_adjust = None;
+        self.library.focus_handle(cx).focus(window, cx);
+        cx.notify();
+    }
+
+    fn close_details(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.details = None;
+        self.library.focus_handle(cx).focus(window, cx);
         cx.notify();
     }
 
@@ -129,9 +232,17 @@ impl Shell {
         cx.notify();
     }
 
+    fn close_previous(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(previous) = self.previous.take() {
+            previous.update(cx, |reader, cx| reader.close(window, cx));
+        }
+    }
+
     fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(reader) = self.reader.take() {
             reader.update(cx, |reader, cx| reader.close(window, cx));
+            self.close_previous(window, cx);
+            self.library.update(cx, |library, _| library.shown());
             // The next start opens the library, not this book.
             cx.update_global(|store: &mut Store, _| {
                 store.library.last_book = None;
@@ -161,9 +272,10 @@ impl Shell {
 
 impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let content = match (&self.reader, &self.cover_adjust) {
-            (Some(reader), _) if !reader.read(cx).loading() => reader.clone().into_any_element(),
-            (None, Some((view, _))) => view.clone().into_any_element(),
+        let content = match (&self.reader, &self.previous, &self.cover_adjust) {
+            (Some(reader), _, _) if !reader.read(cx).loading() => reader.clone().into_any_element(),
+            (_, Some(previous), _) => previous.clone().into_any_element(),
+            (None, _, Some((view, _))) => view.clone().into_any_element(),
             _ => self.library.clone().into_any_element(),
         };
         #[cfg(target_os = "windows")]
@@ -178,6 +290,8 @@ impl Render for Shell {
             .key_context("Shell")
             .on_action(cx.listener(Self::import_dialog))
             .on_action(cx.listener(Self::open_settings))
+            .on_action(cx.listener(Self::history_back))
+            .on_action(cx.listener(Self::history_forward))
             .on_action(|_: &ToggleFullscreen, window, _| window.toggle_fullscreen())
             .on_drop(cx.listener(|_, paths: &ExternalPaths, _, cx| {
                 scan::import(paths.paths().to_vec(), cx);
@@ -192,7 +306,7 @@ impl Render for Shell {
                     .children(self.details.as_ref().map(|(dialog, _)| dialog.clone()))
                     .children(self.settings.as_ref().map(|(panel, _)| panel.clone())),
             )
-            .child(back_button())
+            .child(history_buttons())
     }
 }
 
@@ -216,22 +330,23 @@ fn save_window_state(window: &Window, cx: &mut App) {
     });
 }
 
-/// The back button of a mouse does what Escape does. The listener is on the
-/// window, so overlays that block the mouse do not stop it.
-fn back_button() -> impl IntoElement {
+/// The back and forward buttons of a mouse do what Alt+Left and Alt+Right
+/// do. The listener is on the window, so overlays that block the mouse do not
+/// stop it.
+fn history_buttons() -> impl IntoElement {
     canvas(
         |_, _, _| {},
         |_, _, window, _| {
             window.on_mouse_event(|event: &MouseDownEvent, phase, window, cx| {
-                if phase == DispatchPhase::Bubble
-                    && event.button == MouseButton::Navigate(NavigationDirection::Back)
-                {
-                    window.defer(cx, |window, cx| {
-                        if let Ok(escape) = Keystroke::parse("escape") {
-                            window.dispatch_keystroke(escape, cx);
-                        }
-                    });
+                if phase != DispatchPhase::Bubble {
+                    return;
                 }
+                let action: Box<dyn Action> = match event.button {
+                    MouseButton::Navigate(NavigationDirection::Back) => Box::new(HistoryBack),
+                    MouseButton::Navigate(NavigationDirection::Forward) => Box::new(HistoryForward),
+                    _ => return,
+                };
+                window.defer(cx, move |window, cx| window.dispatch_action(action, cx));
             });
         },
     )
