@@ -49,8 +49,16 @@ impl Tint {
     };
 }
 
-/// Installs the theme with `tint` on its neutral colors.
-pub fn set_theme(mode: ThemeMode, tint: Tint, cx: &mut App) {
+/// Installs the theme with `tint` on its neutral colors. Plum takes the place
+/// of the dark theme.
+pub fn set_theme(choice: book_buddy::library::Theme, tint: Tint, cx: &mut App) {
+    use book_buddy::library::Theme as Choice;
+
+    let (mode, dark) = match choice {
+        Choice::Light => (ThemeMode::Light, "Monochrome Dark"),
+        Choice::Dark => (ThemeMode::Dark, "Monochrome Dark"),
+        Choice::Plum => (ThemeMode::Dark, "Monochrome Plum"),
+    };
     let mut json: serde_json::Value =
         serde_json::from_str(include_str!("../../assets/themes/monochrome.json"))
             .expect("bundled theme must parse");
@@ -69,10 +77,10 @@ pub fn set_theme(mode: ThemeMode, tint: Tint, cx: &mut App) {
     let set: ThemeSet = serde_json::from_value(json).expect("bundled theme must parse");
     let theme = Theme::global_mut(cx);
     for config in set.themes {
-        if config.mode.is_dark() {
-            theme.dark_theme = Rc::new(config);
-        } else {
+        if !config.mode.is_dark() {
             theme.light_theme = Rc::new(config);
+        } else if config.name == dark {
+            theme.dark_theme = Rc::new(config);
         }
     }
     Theme::change(mode, None, cx);

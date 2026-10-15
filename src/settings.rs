@@ -5,8 +5,8 @@ use gpui::{
     PathPromptOptions, Render, SharedString, Stateful, StatefulInteractiveElement, Styled,
     Subscription, Window, actions, div, prelude::FluentBuilder, px,
 };
+use gpui_kit::component::ActiveTheme;
 use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
-use gpui_kit::component::{ActiveTheme, ThemeMode};
 
 use crate::Back;
 use crate::scan;
@@ -55,25 +55,21 @@ pub fn change(cx: &mut App, f: impl FnOnce(&mut Settings)) {
     }
 }
 
-/// The theme mode and tint that are installed.
+/// The theme and tint that are installed.
 #[derive(Default, PartialEq)]
-struct AppliedTheme(Option<(ThemeMode, Tint)>);
+struct AppliedTheme(Option<(Theme, Tint)>);
 
 impl Global for AppliedTheme {}
 
 fn apply_theme(cx: &mut App) {
     let settings = &cx.global::<Store>().library.settings;
-    let mode = match settings.theme {
-        Theme::Light => ThemeMode::Light,
-        Theme::Dark => ThemeMode::Dark,
-    };
-    let wanted = (mode, tint(settings));
+    let wanted = (settings.theme, tint(settings));
     let applied = cx.default_global::<AppliedTheme>().0;
     if applied != Some(wanted) {
         style::set_theme(wanted.0, wanted.1, cx);
         cx.set_global(AppliedTheme(Some(wanted)));
-        // Tones of the other mode would not show on this background.
-        if applied.map(|(mode, _)| mode) != Some(mode) {
+        // Tones of another theme would not show on this background.
+        if applied.map(|(theme, _)| theme) != Some(wanted.0) {
             style::redither(cx);
         }
     }
@@ -95,10 +91,10 @@ fn save_tint(tint: Tint, cx: &mut App) {
 
 /// Shows a tint while a slider moves, without saving it.
 fn preview_tint(tint: Tint, cx: &mut App) {
-    let mode = cx.theme().mode;
-    if cx.default_global::<AppliedTheme>().0 != Some((mode, tint)) {
-        style::set_theme(mode, tint, cx);
-        cx.set_global(AppliedTheme(Some((mode, tint))));
+    let theme = cx.global::<Store>().library.settings.theme;
+    if cx.default_global::<AppliedTheme>().0 != Some((theme, tint)) {
+        style::set_theme(theme, tint, cx);
+        cx.set_global(AppliedTheme(Some((theme, tint))));
         cx.refresh_windows();
     }
 }
@@ -487,7 +483,11 @@ impl Render for SettingsPanel {
                 choice(
                     "theme",
                     settings.theme,
-                    &[(Theme::Light, "LIGHT"), (Theme::Dark, "DARK")],
+                    &[
+                        (Theme::Light, "LIGHT"),
+                        (Theme::Dark, "DARK"),
+                        (Theme::Plum, "PLUM"),
+                    ],
                     |s, v| s.theme = v,
                     cx,
                 ),

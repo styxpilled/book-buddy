@@ -175,6 +175,7 @@ impl Font {
 pub enum Theme {
     Light,
     Dark,
+    Plum,
 }
 
 /// What the library knows about a book file when it is opened.
