@@ -39,15 +39,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       # The exe embeds the fonts, the themes and the icon.
       - name: Build
-        shell: bash
-        run: |
-          cargo build --release
-          cp target/release/book-buddy.exe target/release/Book-Buddy.exe
+        run: cargo build --release
       - uses: actions/upload-artifact@v4
         with:
-          name: Book-Buddy-exe
-          path: target/release/Book-Buddy.exe
+          name: book-buddy-exe
+          path: target/release/book-buddy.exe
       - if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: target/release/Book-Buddy.exe
+          files: target/release/book-buddy.exe
