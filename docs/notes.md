@@ -26,3 +26,9 @@
 - On Windows, the data directory is next to the executable. To measure without changing the user's library or release build, build with `CARGO_TARGET_DIR` set to a temporary directory. Put a test `library.json` in `<target>/release/book-buddy-data/`.
 - On macOS, the data directory is `~/Library/Application Support/book-buddy/`. Dev builds use `book-buddy-dev/`.
 - A release build shows no console. To get the log, start it with `RUST_LOG=book_buddy=info` and redirect stderr.
+
+## macOS app
+
+- `scripts/bundle.sh` builds `target/release/Book Buddy.app`, with an ad-hoc signature.
+- `python3 scripts/icon.py` writes the icons. `assets/icon.icns` needs `iconutil`, so run it on macOS.
+- Finder sends the files to open as URLs (`on_open_urls` in `main.rs`), also to a running app. macOS keeps one instance of an app bundle.

@@ -634,7 +634,9 @@ fn book_items(
     ];
     #[cfg(target_os = "windows")]
     items.push(show_in_explorer(path).disabled(missing));
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    items.push(show_in_finder(path).disabled(missing));
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let _ = (path, missing);
     items
 }
@@ -710,4 +712,18 @@ mod tests {
         assert_eq!(sorted(Sort::Title), ["f", "d", "b", "a", "e", "c"]);
         assert_eq!(sorted(Sort::Author), ["f", "d", "b", "a", "c", "e"]);
     }
+}
+
+#[cfg(target_os = "macos")]
+fn show_in_finder(path: &Path) -> MenuItem {
+    let path = path.to_path_buf();
+    MenuItem::new("SHOW IN FINDER", move |_, _| {
+        if let Err(e) = std::process::Command::new("open")
+            .arg("-R")
+            .arg(&path)
+            .spawn()
+        {
+            log::error!("cannot start Finder: {e}");
+        }
+    })
 }
