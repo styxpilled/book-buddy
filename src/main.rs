@@ -27,7 +27,14 @@ use store::Store;
 
 actions!(
     book_buddy,
-    [Back, HistoryBack, HistoryForward, Import, ToggleFullscreen]
+    [
+        Back,
+        HistoryBack,
+        HistoryForward,
+        Import,
+        Quit,
+        ToggleFullscreen
+    ]
 );
 
 fn main() {
@@ -57,9 +64,12 @@ fn main() {
                 KeyBinding::new("escape", Back, Some("Details")),
                 KeyBinding::new("alt-left", HistoryBack, None),
                 KeyBinding::new("alt-right", HistoryForward, None),
-                KeyBinding::new("ctrl-o", Import, None),
+                KeyBinding::new("secondary-o", Import, None),
                 KeyBinding::new("f11", ToggleFullscreen, None),
             ]);
+            cx.on_action(quit);
+            #[cfg(target_os = "macos")]
+            mac_menus(cx);
             scan::start(cx);
 
             let (window_bounds, display_id) = restore_window(saved_window, cx);
@@ -113,6 +123,53 @@ fn main() {
                 cx.activate(true);
             }
         });
+}
+
+/// Quitting does not close the windows, so their state is saved here. The
+/// action comes during a window update, so the save waits until it ends.
+fn quit(_: &Quit, cx: &mut App) {
+    cx.defer(|cx| {
+        for window in cx.windows() {
+            if let Err(e) = window.update(cx, |_, window, cx| shell::save_window_state(window, cx))
+            {
+                log::error!("cannot save the window state: {e:#}");
+            }
+        }
+        cx.quit();
+    });
+}
+
+#[cfg(target_os = "macos")]
+fn mac_menus(cx: &mut App) {
+    use gpui::{Menu, MenuItem, OsAction, SystemMenuType};
+
+    cx.bind_keys([
+        KeyBinding::new("cmd-q", Quit, None),
+        KeyBinding::new("cmd-[", HistoryBack, None),
+        KeyBinding::new("cmd-]", HistoryForward, None),
+        KeyBinding::new("ctrl-cmd-f", ToggleFullscreen, None),
+    ]);
+    cx.set_menus([
+        Menu::new("book-buddy").items([
+            MenuItem::action("Settings...", settings::OpenSettings),
+            MenuItem::separator(),
+            MenuItem::os_submenu("Services", SystemMenuType::Services),
+            MenuItem::separator(),
+            MenuItem::action("Quit book-buddy", Quit),
+        ]),
+        Menu::new("File").items([MenuItem::action("Add Books...", Import)]),
+        Menu::new("Edit").items([MenuItem::os_action(
+            "Copy",
+            reader::CopySelection,
+            OsAction::Copy,
+        )]),
+        Menu::new("View").items([
+            MenuItem::action("Back", HistoryBack),
+            MenuItem::action("Forward", HistoryForward),
+            MenuItem::separator(),
+            MenuItem::action("Toggle Full Screen", ToggleFullscreen),
+        ]),
+    ]);
 }
 
 /// The saved bounds and the display that has their center. A window that

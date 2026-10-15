@@ -101,13 +101,23 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("ctrl-home", BookStart, context),
         KeyBinding::new("ctrl-end", BookEnd, context),
         KeyBinding::new("t", ToggleToc, context),
-        KeyBinding::new("ctrl-f", OpenSearch, context),
+        KeyBinding::new("secondary-f", OpenSearch, context),
         KeyBinding::new("f3", NextMatch, context),
         KeyBinding::new("shift-f3", PreviousMatch, context),
-        KeyBinding::new("ctrl-c", CopySelection, context),
+        KeyBinding::new("secondary-c", CopySelection, context),
         KeyBinding::new("escape", Back, Some("Search")),
         KeyBinding::new("f3", NextMatch, Some("Search")),
         KeyBinding::new("shift-f3", PreviousMatch, Some("Search")),
+    ]);
+    // Mac keyboards often have no Home and End keys, and macOS uses F3.
+    #[cfg(target_os = "macos")]
+    cx.bind_keys([
+        KeyBinding::new("cmd-up", BookStart, context),
+        KeyBinding::new("cmd-down", BookEnd, context),
+        KeyBinding::new("cmd-g", NextMatch, context),
+        KeyBinding::new("cmd-shift-g", PreviousMatch, context),
+        KeyBinding::new("cmd-g", NextMatch, Some("Search")),
+        KeyBinding::new("cmd-shift-g", PreviousMatch, Some("Search")),
     ]);
 
     macro_rules! styles {

@@ -23,6 +23,6 @@
 
 ## Measuring
 
-- The data directory is next to the executable.
-- To measure without changing the user's library or release build, build with `CARGO_TARGET_DIR` set to a temporary directory. Put a test `library.json` in `<target>/release/book-buddy-data/`.
+- On Windows, the data directory is next to the executable. To measure without changing the user's library or release build, build with `CARGO_TARGET_DIR` set to a temporary directory. Put a test `library.json` in `<target>/release/book-buddy-data/`.
+- On macOS, the data directory is `~/Library/Application Support/book-buddy/`. Dev builds use `book-buddy-dev/`.
 - A release build shows no console. To get the log, start it with `RUST_LOG=book_buddy=info` and redirect stderr.
