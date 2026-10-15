@@ -15,7 +15,7 @@ use crate::reader::{Reader, ReaderEvent};
 use crate::scan;
 use crate::settings::{CloseSettings, OpenSettings, SettingsPanel};
 use crate::store::Store;
-use crate::{HistoryBack, HistoryForward, Import, ToggleFullscreen};
+use crate::{CloseWindow, HistoryBack, HistoryForward, Import, ToggleFullscreen};
 
 /// An entry of the window history.
 #[derive(Clone, PartialEq)]
@@ -294,6 +294,10 @@ impl Render for Shell {
             .on_action(cx.listener(Self::history_back))
             .on_action(cx.listener(Self::history_forward))
             .on_action(|_: &ToggleFullscreen, window, _| window.toggle_fullscreen())
+            .on_action(|_: &CloseWindow, window, cx| {
+                save_window_state(window, cx);
+                window.remove_window();
+            })
             .on_drop(cx.listener(|_, paths: &ExternalPaths, _, cx| {
                 scan::import(paths.paths().to_vec(), cx);
             }))
