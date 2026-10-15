@@ -67,7 +67,8 @@ fn main() {
                 KeyBinding::new("secondary-o", Import, None),
                 KeyBinding::new("f11", ToggleFullscreen, None),
             ]);
-            cx.on_action(quit);
+            cx.on_action(|_: &Quit, cx| cx.quit());
+            save_windows_on_quit(cx);
             #[cfg(target_os = "macos")]
             mac_menus(cx);
             scan::start(cx);
@@ -125,18 +126,19 @@ fn main() {
         });
 }
 
-/// Quitting does not close the windows, so their state is saved here. The
-/// action comes during a window update, so the save waits until it ends.
-fn quit(_: &Quit, cx: &mut App) {
-    cx.defer(|cx| {
+/// Quitting from the menu, the Dock or a log out does not close the windows,
+/// so their state is saved here.
+fn save_windows_on_quit(cx: &mut App) {
+    cx.on_app_quit(|cx| {
         for window in cx.windows() {
             if let Err(e) = window.update(cx, |_, window, cx| shell::save_window_state(window, cx))
             {
                 log::error!("cannot save the window state: {e:#}");
             }
         }
-        cx.quit();
-    });
+        async {}
+    })
+    .detach();
 }
 
 #[cfg(target_os = "macos")]
