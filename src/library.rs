@@ -246,9 +246,10 @@ impl Library {
             fs::create_dir_all(dir)?;
         }
         let temp = path.with_extension("json.tmp");
+        // One write: many small writes are slow when a scanner checks each one.
+        let json = serde_json::to_vec_pretty(self)?;
         let mut file = File::create(&temp)?;
-        serde_json::to_writer_pretty(&mut file, self)?;
-        file.flush()?;
+        file.write_all(&json)?;
         file.sync_all()?;
         drop(file);
         fs::rename(&temp, path).with_context(|| format!("cannot write {}", path.display()))
