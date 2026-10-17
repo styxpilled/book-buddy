@@ -779,9 +779,11 @@ dependencies = [
  "quick-xml 0.42.0",
  "raw-window-handle",
  "rbook",
+ "rustybuzz",
  "scraper",
  "serde",
  "serde_json",
+ "tiny-skia",
  "windows 0.62.2",
 ]
 

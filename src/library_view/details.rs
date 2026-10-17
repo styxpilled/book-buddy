@@ -10,6 +10,7 @@ use gpui_kit::component::ActiveTheme;
 use gpui_kit::component::input::{InputEvent, InputState};
 
 use crate::Back;
+use crate::scan;
 use crate::store::Store;
 use crate::ui::menu;
 use crate::ui::style;
@@ -74,6 +75,7 @@ impl DetailsDialog {
         cx.update_global(|store: &mut Store, _| {
             if let Some(book) = store.library.book_mut(&self.id) {
                 book.set_details(&title, &author);
+                scan::update_text_cover(&self.id, store);
                 store.save();
             }
         });

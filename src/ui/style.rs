@@ -4,9 +4,10 @@
 use std::borrow::Cow;
 use std::rc::Rc;
 
+use book_buddy::fonts;
 use gpui::{
-    App, Div, ElementId, Entity, Global, Hsla, InteractiveElement, IntoElement, ParentElement,
-    PathBuilder, SharedString, Stateful, Styled, canvas, div, prelude::FluentBuilder, px, relative,
+    App, Div, ElementId, Entity, Global, Hsla, InteractiveElement, ParentElement, SharedString,
+    Stateful, Styled, div, prelude::FluentBuilder, px, relative,
 };
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::{ActiveTheme, Theme, ThemeMode, ThemeSet};
@@ -19,10 +20,10 @@ pub const DITHER_CELL: u32 = 4;
 pub const DISABLED: f32 = 0.45;
 
 pub fn init(cx: &mut App) {
-    let fonts: [&'static [u8]; 3] = [
-        include_bytes!("../../assets/fonts/IBMPlexMono-Regular.ttf"),
-        include_bytes!("../../assets/fonts/IBMPlexMono-Medium.ttf"),
-        include_bytes!("../../assets/fonts/DotGothic16-Regular.ttf"),
+    let fonts = [
+        fonts::PLEX_MONO.regular,
+        fonts::PLEX_MONO_MEDIUM,
+        fonts::DOT_GOTHIC,
     ];
     cx.text_system()
         .add_fonts(fonts.into_iter().map(Cow::Borrowed).collect())
@@ -253,31 +254,6 @@ pub fn progress(percent: f32, cx: &App) -> Div {
         .flex()
         .gap(px(2.))
         .children((0..10).map(|i| div().size(px(3.)).bg(if i < filled { on } else { off })))
-}
-
-/// Two diagonals across the parent.
-pub fn cross(color: Hsla) -> impl IntoElement {
-    canvas(
-        |_, _, _| (),
-        move |bounds, _, window, _| {
-            let lines = [
-                (bounds.origin, bounds.bottom_right()),
-                (bounds.top_right(), bounds.bottom_left()),
-            ];
-            for (from, to) in lines {
-                let mut path = PathBuilder::stroke(px(1.));
-                path.move_to(from);
-                path.line_to(to);
-                if let Ok(path) = path.build() {
-                    window.paint_path(path, color);
-                }
-            }
-        },
-    )
-    .absolute()
-    .top_0()
-    .left_0()
-    .size_full()
 }
 
 /// How far the box behind a panel or menu shows, as its shadow.

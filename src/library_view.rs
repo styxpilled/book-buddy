@@ -5,13 +5,14 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
+use book_buddy::cover;
 use book_buddy::dither::{Adjust, dither};
 use book_buddy::library::BookEntry;
 use gpui::{
     App, AppContext, Context, Div, Entity, EventEmitter, FocusHandle, Focusable,
     InteractiveElement, IntoElement, MouseButton, ObjectFit, ParentElement, Pixels, Point, Render,
     ScrollStrategy, SharedString, StatefulInteractiveElement, Styled, StyledImage, Subscription,
-    UniformListScrollHandle, WeakEntity, Window, div, img, prelude::*, px, relative, uniform_list,
+    UniformListScrollHandle, WeakEntity, Window, div, img, prelude::*, px, uniform_list,
 };
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -20,13 +21,14 @@ use gpui_kit::component::{ActiveTheme, Sizable};
 
 mod backdrop;
 pub(crate) mod cover_adjust;
+pub(crate) mod cover_editor;
 pub(crate) mod details;
 mod image_cache;
 
 use crate::Import;
 use crate::scan::{COVER_HEIGHT, COVER_WIDTH};
 use crate::settings::OpenSettings;
-use crate::store::{Store, cover_path};
+use crate::store::{Store, cover_path, is_text_cover, text_cover_path};
 use crate::ui::autoscroll::{self, Autoscroll};
 use crate::ui::menu::{self, Dismiss, Menu, MenuItem};
 use crate::ui::style;
@@ -48,6 +50,8 @@ pub enum LibraryEvent {
     Open(PathBuf),
     /// Opens the cover adjustment screen for the book with this ID.
     AdjustCover(String),
+    /// Opens the editor of the generated cover of the book with this ID.
+    EditCover(String),
     /// Opens the dialog to edit the title and author of the book with this ID.
     EditDetails(String),
 }
@@ -100,8 +104,9 @@ pub struct LibraryView {
     covers: Entity<BoundedImageCache>,
     /// The tones the covers are dithered to. They follow the theme.
     tones: ([u8; 3], [u8; 3]),
-    /// The adjustments of the covers in `covers`, by cover path.
-    adjusts: Arc<HashMap<PathBuf, Adjust>>,
+    /// The adjustment and the revision (see `Store::cover_revision`) of each
+    /// cover file that has one of them.
+    looks: Arc<HashMap<PathBuf, Look>>,
     menu: Option<OpenMenu>,
     /// The scroll stays while a book or cover adjust is on screen.
     scroll: UniformListScrollHandle,
@@ -138,13 +143,13 @@ impl LibraryView {
             cx.observe_global::<Store>(|_, cx| cx.notify()),
         ];
         let tones = style::tones(cx);
-        let adjusts = Arc::new(cover_adjusts(cx));
+        let looks = Arc::new(cover_looks(cx));
         Self {
             filter,
             sort: Sort::LastOpened,
-            covers: cover_cache(tones, adjusts.clone(), window, cx),
+            covers: cover_cache(tones, looks.clone(), window, cx),
             tones,
-            adjusts,
+            looks,
             menu: None,
             scroll: UniformListScrollHandle::new(),
             scroll_to_top: false,
@@ -314,32 +319,44 @@ fn decoded_covers(window: &Window) -> usize {
     2 * rows * columns(window)
 }
 
-fn cover_adjusts(cx: &App) -> HashMap<PathBuf, Adjust> {
+type Look = (Adjust, u32);
+
+fn cover_looks(cx: &App) -> HashMap<PathBuf, Look> {
     let store = cx.global::<Store>();
-    store
-        .library
-        .books
-        .iter()
-        .filter(|b| !b.cover_adjust.is_none())
-        .map(|b| (cover_path(store.covers(), &b.id), b.cover_adjust))
-        .collect()
+    let mut looks = HashMap::new();
+    for book in &store.library.books {
+        let revision = store.cover_revision(&book.id);
+        if !book.cover_adjust.is_none() || revision > 0 {
+            looks.insert(
+                cover_path(store.covers(), &book.id),
+                (book.cover_adjust, revision),
+            );
+        }
+        if revision > 0 {
+            looks.insert(
+                text_cover_path(store.covers(), &book.id),
+                (Adjust::NONE, revision),
+            );
+        }
+    }
+    looks
 }
 
 fn cover_cache(
     tones: ([u8; 3], [u8; 3]),
-    adjusts: Arc<HashMap<PathBuf, Adjust>>,
+    looks: Arc<HashMap<PathBuf, Look>>,
     window: &Window,
     cx: &mut App,
 ) -> Entity<BoundedImageCache> {
-    BoundedImageCache::new(decoded_covers(window), cover_filter(tones, adjusts), cx)
+    BoundedImageCache::new(decoded_covers(window), cover_filter(tones, looks), cx)
 }
 
-fn cover_filter(
-    (dark, light): ([u8; 3], [u8; 3]),
-    adjusts: Arc<HashMap<PathBuf, Adjust>>,
-) -> Filter {
+fn cover_filter((dark, light): ([u8; 3], [u8; 3]), looks: Arc<HashMap<PathBuf, Look>>) -> Filter {
     Arc::new(move |path, image| {
-        let adjust = adjusts.get(path).unwrap_or(&Adjust::NONE);
+        if is_text_cover(path) {
+            return cover::colorize(&image, dark, light);
+        }
+        let adjust = looks.get(path).map_or(&Adjust::NONE, |(adjust, _)| adjust);
         dither(&image, style::DITHER_CELL, adjust, dark, light)
     })
 }
@@ -348,20 +365,20 @@ impl Render for LibraryView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.autoscroll_frame(window);
         let tones = style::tones(cx);
-        let adjusts = cover_adjusts(cx);
+        let looks = cover_looks(cx);
         if tones != self.tones {
             self.tones = tones;
-            self.adjusts = Arc::new(adjusts);
-            self.covers = cover_cache(tones, self.adjusts.clone(), window, cx);
-        } else if adjusts != *self.adjusts {
-            let changed: Vec<PathBuf> = adjusts
+            self.looks = Arc::new(looks);
+            self.covers = cover_cache(tones, self.looks.clone(), window, cx);
+        } else if looks != *self.looks {
+            let changed: Vec<PathBuf> = looks
                 .keys()
-                .chain(self.adjusts.keys())
-                .filter(|path| adjusts.get(*path) != self.adjusts.get(*path))
+                .chain(self.looks.keys())
+                .filter(|path| looks.get(*path) != self.looks.get(*path))
                 .cloned()
                 .collect();
-            self.adjusts = Arc::new(adjusts);
-            let filter = cover_filter(tones, self.adjusts.clone());
+            self.looks = Arc::new(looks);
+            let filter = cover_filter(tones, self.looks.clone());
             self.covers
                 .update(cx, |covers, cx| covers.set_filter(filter, &changed, cx));
         }
@@ -462,8 +479,8 @@ fn card(
 ) -> impl IntoElement {
     let theme = cx.theme();
     let store = cx.global::<Store>();
-    let cover = cover_path(store.covers(), &book.id);
-    let has_cover = cover.exists();
+    let shown = store.shown_cover(&book.id);
+    let has_image = shown.as_deref().is_some_and(|path| !is_text_cover(path));
     let progress = div()
         .h(px(18.))
         .px(px(5.))
@@ -486,35 +503,12 @@ fn card(
         .border_1()
         .border_color(theme.border)
         .bg(theme.muted)
-        .map(|frame| {
-            if has_cover {
-                frame.child(
-                    img(cover)
-                        .image_cache(covers)
-                        .size_full()
-                        .object_fit(ObjectFit::Cover),
-                )
-            } else {
-                frame
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .p(px(10.))
-                    .child(style::cross(style::faint(cx)))
-                    .child(
-                        div()
-                            .relative()
-                            .p(px(6.))
-                            .border_1()
-                            .border_color(theme.border)
-                            .bg(theme.muted)
-                            .text_size(px(10.))
-                            .line_height(relative(1.3))
-                            .text_center()
-                            .child(book.shown_title().to_uppercase()),
-                    )
-            }
-        })
+        .children(shown.map(|path| {
+            img(path)
+                .image_cache(covers)
+                .size_full()
+                .object_fit(ObjectFit::Cover)
+        }))
         .when(book.missing || book.hidden, |cover| {
             cover.child(
                 div()
@@ -579,7 +573,7 @@ fn card(
             }
         })
         .on_mouse_down(MouseButton::Right, move |event, window, cx| {
-            let items = book_items(&id, &path, hidden, missing, has_cover, view.clone());
+            let items = book_items(&id, &path, hidden, missing, has_image, view.clone());
             view.update(cx, |this, cx| {
                 this.open_menu(Some(event.position), items, window, cx)
             })
@@ -599,11 +593,11 @@ fn book_items(
     path: &Path,
     hidden: bool,
     missing: bool,
-    has_cover: bool,
+    has_image: bool,
     view: WeakEntity<LibraryView>,
 ) -> Vec<MenuItem> {
     let (hide_id, remove_id) = (id.to_string(), id.to_string());
-    let (adjust_id, details_id) = (id.to_string(), id.to_string());
+    let (cover_id, details_id) = (id.to_string(), id.to_string());
     let details_view = view.clone();
     let mut items = vec![
         MenuItem::new(if hidden { "UNHIDE" } else { "HIDE" }, move |_, cx| {
@@ -621,13 +615,21 @@ fn book_items(
                 })
                 .ok();
         }),
-        MenuItem::new("ADJUST COVER", move |_, cx| {
-            view.update(cx, |_, cx| {
-                cx.emit(LibraryEvent::AdjustCover(adjust_id.clone()))
-            })
-            .ok();
-        })
-        .disabled(!has_cover),
+        MenuItem::new(
+            if has_image {
+                "ADJUST COVER"
+            } else {
+                "EDIT COVER"
+            },
+            move |_, cx| {
+                let event = if has_image {
+                    LibraryEvent::AdjustCover(cover_id.clone())
+                } else {
+                    LibraryEvent::EditCover(cover_id.clone())
+                };
+                view.update(cx, |_, cx| cx.emit(event)).ok();
+            },
+        ),
         MenuItem::new("REMOVE FROM LIBRARY", move |_, cx| {
             cx.update_global(|store: &mut Store, _| store.remove_book(&remove_id));
         }),

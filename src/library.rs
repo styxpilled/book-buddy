@@ -7,6 +7,7 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::cover::TextCover;
 use crate::dither::Adjust;
 
 pub const VERSION: u32 = 1;
@@ -70,6 +71,9 @@ pub struct BookEntry {
     pub custom_title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_author: Option<String>,
+    /// The generated cover of a book without a cover image. `None` is the defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_cover: Option<TextCover>,
 }
 
 impl BookEntry {
@@ -79,6 +83,12 @@ impl BookEntry {
 
     pub fn shown_author(&self) -> &str {
         self.custom_author.as_deref().unwrap_or(&self.author)
+    }
+
+    pub fn text_cover(&self) -> TextCover {
+        self.text_cover
+            .clone()
+            .unwrap_or_else(|| TextCover::for_book(&self.id))
     }
 
     /// An empty value, or the value from the file, removes the override.
@@ -343,6 +353,7 @@ impl Library {
                     cover_adjust: info.cover_adjust,
                     custom_title: None,
                     custom_author: None,
+                    text_cover: None,
                 });
                 self.books.len() - 1
             }

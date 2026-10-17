@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use book_buddy::book::{Block, BlockKind, Book, Chapter, Layout, Marker, Run};
+use book_buddy::fonts;
 use book_buddy::library::{FileInfo, Font, Mode, Position};
 use chrono::Utc;
 use gpui::{
@@ -120,31 +121,11 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("cmd-shift-g", PreviousMatch, Some("Search")),
     ]);
 
-    macro_rules! styles {
-        ($($name:literal),*) => {
-            [$(
-                include_bytes!(concat!("../assets/fonts/", $name, "-Regular.ttf")) as &'static [u8],
-                include_bytes!(concat!("../assets/fonts/", $name, "-Bold.ttf")),
-                include_bytes!(concat!("../assets/fonts/", $name, "-Italic.ttf")),
-                include_bytes!(concat!("../assets/fonts/", $name, "-BoldItalic.ttf")),
-            )*]
-        };
-    }
     // `style::init` adds IBM Plex Mono Regular for the UI.
-    let fonts = styles!(
-        "Literata",
-        "Inter",
-        "Newsreader",
-        "SourceSerif4",
-        "Alegreya",
-        "EBGaramond"
-    )
-    .into_iter()
-    .chain([
-        include_bytes!("../assets/fonts/IBMPlexMono-Bold.ttf") as &'static [u8],
-        include_bytes!("../assets/fonts/IBMPlexMono-Italic.ttf"),
-        include_bytes!("../assets/fonts/IBMPlexMono-BoldItalic.ttf"),
-    ]);
+    let fonts = fonts::READER
+        .iter()
+        .flat_map(|family| family.files())
+        .filter(|file| !std::ptr::eq(*file, fonts::PLEX_MONO.regular));
     cx.text_system()
         .add_fonts(fonts.map(Cow::Borrowed).collect())
         .expect("bundled fonts must load");

@@ -85,6 +85,7 @@ fn main() {
         cx.bind_keys([
             KeyBinding::new("escape", Back, Some("Reader")),
             KeyBinding::new("escape", Back, Some("CoverAdjust")),
+            KeyBinding::new("escape", Back, Some("CoverEditor")),
             KeyBinding::new("escape", Back, Some("Details")),
             KeyBinding::new("alt-left", HistoryBack, None),
             KeyBinding::new("alt-right", HistoryForward, None),

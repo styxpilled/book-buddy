@@ -9,6 +9,7 @@ use gpui::{
 };
 
 use crate::library_view::cover_adjust::{CloseCoverAdjust, CoverAdjust};
+use crate::library_view::cover_editor::{CloseCoverEditor, CoverEditor};
 use crate::library_view::details::{CloseDetails, DetailsDialog};
 use crate::library_view::{LibraryEvent, LibraryView};
 use crate::reader::{Reader, ReaderEvent};
@@ -31,6 +32,7 @@ pub struct Shell {
     /// The book on screen while `reader` loads the next one.
     previous: Option<Entity<Reader>>,
     cover_adjust: Option<(Entity<CoverAdjust>, Subscription)>,
+    cover_editor: Option<(Entity<CoverEditor>, Subscription)>,
     details: Option<(Entity<DetailsDialog>, Subscription)>,
     settings: Option<(Entity<SettingsPanel>, Subscription)>,
     back: Vec<View>,
@@ -46,6 +48,7 @@ impl Shell {
             cx.subscribe_in(&library, window, |this, _, event, window, cx| match event {
                 LibraryEvent::Open(path) => this.open(path.clone(), window, cx),
                 LibraryEvent::AdjustCover(id) => this.open_cover_adjust(id, window, cx),
+                LibraryEvent::EditCover(id) => this.open_cover_editor(id, window, cx),
                 LibraryEvent::EditDetails(id) => this.open_details(id, window, cx),
             });
         let mut shell = Self {
@@ -53,6 +56,7 @@ impl Shell {
             reader: None,
             previous: None,
             cover_adjust: None,
+            cover_editor: None,
             details: None,
             settings: None,
             back: Vec::new(),
@@ -108,6 +112,8 @@ impl Shell {
             self.close_details(window, cx);
         } else if self.cover_adjust.is_some() {
             self.close_cover_adjust(window, cx);
+        } else if self.cover_editor.is_some() {
+            self.close_cover_editor(window, cx);
         } else if let Some(view) = self.back.pop() {
             self.forward.push(self.current(cx));
             self.show(view, window, cx);
@@ -115,8 +121,10 @@ impl Shell {
     }
 
     fn history_forward(&mut self, _: &HistoryForward, window: &mut Window, cx: &mut Context<Self>) {
-        let overlay =
-            self.settings.is_some() || self.details.is_some() || self.cover_adjust.is_some();
+        let overlay = self.settings.is_some()
+            || self.details.is_some()
+            || self.cover_adjust.is_some()
+            || self.cover_editor.is_some();
         if !overlay && let Some(view) = self.forward.pop() {
             self.back.push(self.current(cx));
             self.show(view, window, cx);
@@ -183,6 +191,20 @@ impl Shell {
         cx.notify();
     }
 
+    fn open_cover_editor(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(view) = CoverEditor::open(id, window, cx) else {
+            return;
+        };
+        let subscription = cx.subscribe_in(
+            &view,
+            window,
+            |this, _, _: &CloseCoverEditor, window, cx| this.close_cover_editor(window, cx),
+        );
+        view.focus_handle(cx).focus(window, cx);
+        self.cover_editor = Some((view, subscription));
+        cx.notify();
+    }
+
     fn open_details(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
         let Some(dialog) = DetailsDialog::open(id, window, cx) else {
             return;
@@ -198,6 +220,12 @@ impl Shell {
 
     fn close_cover_adjust(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.cover_adjust = None;
+        self.library.focus_handle(cx).focus(window, cx);
+        cx.notify();
+    }
+
+    fn close_cover_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.cover_editor = None;
         self.library.focus_handle(cx).focus(window, cx);
         cx.notify();
     }
@@ -273,10 +301,18 @@ impl Shell {
 
 impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let content = match (&self.reader, &self.previous, &self.cover_adjust) {
-            (Some(reader), _, _) if !reader.read(cx).loading() => reader.clone().into_any_element(),
-            (_, Some(previous), _) => previous.clone().into_any_element(),
-            (None, _, Some((view, _))) => view.clone().into_any_element(),
+        let content = match (&self.reader, &self.previous) {
+            (Some(reader), _) if !reader.read(cx).loading() => reader.clone().into_any_element(),
+            (_, Some(previous)) => previous.clone().into_any_element(),
+            (None, _) => {
+                if let Some((view, _)) = &self.cover_adjust {
+                    view.clone().into_any_element()
+                } else if let Some((view, _)) = &self.cover_editor {
+                    view.clone().into_any_element()
+                } else {
+                    self.library.clone().into_any_element()
+                }
+            }
             _ => self.library.clone().into_any_element(),
         };
         #[cfg(any(target_os = "windows", target_os = "macos"))]
