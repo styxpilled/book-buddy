@@ -15,7 +15,7 @@ jobs:
   macos:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       # gpui compiles Metal shaders. Newer Xcode versions download the
       # compiler separately.
@@ -23,28 +23,28 @@ jobs:
         run: xcrun -f metal || xcodebuild -downloadComponent MetalToolchain
       - name: Build
         run: scripts/bundle.sh --dmg
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Book-Buddy-dmg
           path: target/release/Book-Buddy.dmg
       - if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: target/release/Book-Buddy.dmg
 
   windows:
     runs-on: windows-2025
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       # The exe embeds the fonts, the themes and the icon.
       - name: Build
         run: cargo build --release
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: book-buddy-exe
           path: target/release/book-buddy.exe
       - if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: target/release/book-buddy.exe
