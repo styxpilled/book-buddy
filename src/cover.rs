@@ -223,16 +223,15 @@ pub fn render(cover: &TextCover, title: &str, author: &str, cell: u32) -> RgbaIm
 }
 
 /// A cover from `render` in two colors.
-pub fn colorize(image: &RgbaImage, dark: [u8; 3], light: [u8; 3]) -> RgbaImage {
-    let mut out = image.clone();
-    for pixel in out.pixels_mut() {
+pub fn colorize(mut image: RgbaImage, dark: [u8; 3], light: [u8; 3]) -> RgbaImage {
+    for pixel in image.pixels_mut() {
         let t = pixel.0[0] as u32;
         for (i, c) in pixel.0[..3].iter_mut().enumerate() {
             *c = ((dark[i] as u32 * (255 - t) + light[i] as u32 * t + 127) / 255) as u8;
         }
         pixel.0[3] = 255;
     }
-    out
+    image
 }
 
 /// The outline of all text in dots, and the top and bottom of the band.
@@ -283,6 +282,9 @@ fn text_dots(path: &Path) -> Vec<bool> {
 
 /// The dots that are not text and are at most `radius` dots from text.
 fn near_text(text: &[bool], radius: u32) -> Vec<bool> {
+    if radius == 0 {
+        return vec![false; text.len()];
+    }
     let r = radius as i32;
     let (width, height) = (WIDTH as i32, HEIGHT as i32);
     let is_text = |x: i32, y: i32| {
@@ -291,8 +293,7 @@ fn near_text(text: &[bool], radius: u32) -> Vec<bool> {
     (0..text.len() as i32)
         .map(|ix| {
             let (x, y) = (ix % width, ix / width);
-            r > 0
-                && !text[ix as usize]
+            !text[ix as usize]
                 && (-r..=r).any(|dy| {
                     (-r..=r).any(|dx| dx * dx + dy * dy <= r * r + r && is_text(x + dx, y + dy))
                 })
@@ -378,20 +379,22 @@ fn wrap(face: &Face, text: &str, width: f32, size: f32) -> Block {
     let mut lines = Vec::new();
     for paragraph in text.lines() {
         let mut current = String::new();
+        let mut line = shape(face, "");
         for word in paragraph.split_whitespace() {
             let next = if current.is_empty() {
                 word.to_string()
             } else {
                 format!("{current} {word}")
             };
-            if !current.is_empty() && shape(face, &next).width > max {
-                lines.push(shape(face, &current));
+            let next_line = shape(face, &next);
+            if !current.is_empty() && next_line.width > max {
+                lines.push(std::mem::replace(&mut line, shape(face, word)));
                 current = word.to_string();
             } else {
-                current = next;
+                (current, line) = (next, next_line);
             }
         }
-        lines.push(shape(face, &current));
+        lines.push(line);
     }
     Block { size, lines }
 }
@@ -696,7 +699,7 @@ mod tests {
     #[test]
     fn colorize_maps_black_and_white() {
         let image = RgbaImage::from_fn(3, 1, |x, _| Rgba([[0, 255, 128][x as usize]; 4]));
-        let out = colorize(&image, [10, 20, 30], [200, 210, 220]);
+        let out = colorize(image, [10, 20, 30], [200, 210, 220]);
         assert_eq!(out.get_pixel(0, 0).0, [10, 20, 30, 255]);
         assert_eq!(out.get_pixel(1, 0).0, [200, 210, 220, 255]);
         assert_eq!(out.get_pixel(2, 0).0, [105, 115, 125, 255]);

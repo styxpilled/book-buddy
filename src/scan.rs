@@ -62,9 +62,8 @@ pub fn write_text_cover(book: &BookEntry, covers: &Path) -> Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
-    let cover = &book.text_cover();
     cover::render(
-        cover,
+        &book.text_cover(),
         book.shown_title(),
         book.shown_author(),
         style::DITHER_CELL,

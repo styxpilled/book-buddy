@@ -20,13 +20,12 @@ pub const DITHER_CELL: u32 = 4;
 pub const DISABLED: f32 = 0.45;
 
 pub fn init(cx: &mut App) {
-    let fonts = [
-        fonts::PLEX_MONO.regular,
-        fonts::PLEX_MONO_MEDIUM,
-        fonts::DOT_GOTHIC,
-    ];
+    let fonts = fonts::PLEX_MONO
+        .files()
+        .into_iter()
+        .chain([fonts::PLEX_MONO_MEDIUM, fonts::DOT_GOTHIC]);
     cx.text_system()
-        .add_fonts(fonts.into_iter().map(Cow::Borrowed).collect())
+        .add_fonts(fonts.map(Cow::Borrowed).collect())
         .expect("bundled fonts must load");
 }
 

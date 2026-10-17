@@ -121,11 +121,11 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("cmd-shift-g", PreviousMatch, Some("Search")),
     ]);
 
-    // `style::init` adds IBM Plex Mono Regular for the UI.
+    // `style::init` adds IBM Plex Mono for the UI.
     let fonts = fonts::READER
         .iter()
-        .flat_map(|family| family.files())
-        .filter(|file| !std::ptr::eq(*file, fonts::PLEX_MONO.regular));
+        .filter(|family| !std::ptr::eq(**family, &fonts::PLEX_MONO))
+        .flat_map(|family| family.files());
     cx.text_system()
         .add_fonts(fonts.map(Cow::Borrowed).collect())
         .expect("bundled fonts must load");

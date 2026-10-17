@@ -325,13 +325,10 @@ fn cover_looks(cx: &App) -> HashMap<PathBuf, Look> {
     let store = cx.global::<Store>();
     let mut looks = HashMap::new();
     for book in &store.library.books {
-        let revision = store.cover_revision(&book.id);
-        if !book.cover_adjust.is_none() || revision > 0 {
-            looks.insert(
-                cover_path(store.covers(), &book.id),
-                (book.cover_adjust, revision),
-            );
+        if !book.cover_adjust.is_none() {
+            looks.insert(cover_path(store.covers(), &book.id), (book.cover_adjust, 0));
         }
+        let revision = store.cover_revision(&book.id);
         if revision > 0 {
             looks.insert(
                 text_cover_path(store.covers(), &book.id),
@@ -354,7 +351,7 @@ fn cover_cache(
 fn cover_filter((dark, light): ([u8; 3], [u8; 3]), looks: Arc<HashMap<PathBuf, Look>>) -> Filter {
     Arc::new(move |path, image| {
         if is_text_cover(path) {
-            return cover::colorize(&image, dark, light);
+            return cover::colorize(image, dark, light);
         }
         let adjust = looks.get(path).map_or(&Adjust::NONE, |(adjust, _)| adjust);
         dither(&image, style::DITHER_CELL, adjust, dark, light)
@@ -599,6 +596,11 @@ fn book_items(
     let (hide_id, remove_id) = (id.to_string(), id.to_string());
     let (cover_id, details_id) = (id.to_string(), id.to_string());
     let details_view = view.clone();
+    let (cover_label, cover_event): (_, fn(String) -> LibraryEvent) = if has_image {
+        ("ADJUST COVER", LibraryEvent::AdjustCover)
+    } else {
+        ("EDIT COVER", LibraryEvent::EditCover)
+    };
     let mut items = vec![
         MenuItem::new(if hidden { "UNHIDE" } else { "HIDE" }, move |_, cx| {
             cx.update_global(|store: &mut Store, _| {
@@ -615,21 +617,10 @@ fn book_items(
                 })
                 .ok();
         }),
-        MenuItem::new(
-            if has_image {
-                "ADJUST COVER"
-            } else {
-                "EDIT COVER"
-            },
-            move |_, cx| {
-                let event = if has_image {
-                    LibraryEvent::AdjustCover(cover_id.clone())
-                } else {
-                    LibraryEvent::EditCover(cover_id.clone())
-                };
-                view.update(cx, |_, cx| cx.emit(event)).ok();
-            },
-        ),
+        MenuItem::new(cover_label, move |_, cx| {
+            view.update(cx, |_, cx| cx.emit(cover_event(cover_id.clone())))
+                .ok();
+        }),
         MenuItem::new("REMOVE FROM LIBRARY", move |_, cx| {
             cx.update_global(|store: &mut Store, _| store.remove_book(&remove_id));
         }),

@@ -115,6 +115,8 @@ impl Store {
     }
 }
 
+const TEXT_COVERS: &str = "text";
+
 /// Cover thumbnails are named by book ID. A file name cannot contain `:`.
 pub fn cover_path(covers: &Path, id: &str) -> PathBuf {
     covers.join(file_name(id))
@@ -130,8 +132,6 @@ pub fn is_text_cover(path: &Path) -> bool {
         .and_then(Path::file_name)
         .is_some_and(|dir| dir == TEXT_COVERS)
 }
-
-const TEXT_COVERS: &str = "text";
 
 fn file_name(id: &str) -> String {
     format!("{}.png", id.replace(':', "-"))

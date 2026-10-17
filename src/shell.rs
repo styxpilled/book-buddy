@@ -301,18 +301,16 @@ impl Shell {
 
 impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let content = match (&self.reader, &self.previous) {
-            (Some(reader), _) if !reader.read(cx).loading() => reader.clone().into_any_element(),
-            (_, Some(previous)) => previous.clone().into_any_element(),
-            (None, _) => {
-                if let Some((view, _)) = &self.cover_adjust {
-                    view.clone().into_any_element()
-                } else if let Some((view, _)) = &self.cover_editor {
-                    view.clone().into_any_element()
-                } else {
-                    self.library.clone().into_any_element()
-                }
-            }
+        let content = match (
+            &self.reader,
+            &self.previous,
+            &self.cover_adjust,
+            &self.cover_editor,
+        ) {
+            (Some(reader), ..) if !reader.read(cx).loading() => reader.clone().into_any_element(),
+            (_, Some(previous), ..) => previous.clone().into_any_element(),
+            (None, _, Some((view, _)), _) => view.clone().into_any_element(),
+            (None, _, _, Some((view, _))) => view.clone().into_any_element(),
             _ => self.library.clone().into_any_element(),
         };
         #[cfg(any(target_os = "windows", target_os = "macos"))]

@@ -141,7 +141,7 @@ impl CoverEditor {
         }
         let (dark, light) = style::tones(cx);
         let cover = cover::render(&self.cover, &self.title, &self.author, cell);
-        let image = render_image(cover::colorize(&cover, dark, light));
+        let image = render_image(cover::colorize(cover, dark, light));
         if let Some((old, ..)) = self
             .preview
             .replace((image.clone(), cell, self.cover.clone()))
@@ -150,29 +150,28 @@ impl CoverEditor {
         }
         image
     }
+}
 
-    /// A row of buttons, one for each value. The button of the current value is filled.
-    fn choices<T: Copy + PartialEq + 'static>(
-        &self,
-        id: &'static str,
-        options: impl IntoIterator<Item = (T, &'static str)>,
-        current: T,
-        pick: fn(&mut TextCover, T),
-        cx: &mut Context<Self>,
-    ) -> Div {
-        div()
-            .flex()
-            .flex_wrap()
-            .gap(px(4.))
-            .children(options.into_iter().enumerate().map(|(ix, (value, label))| {
-                style::button((id, ix), label, value == current, cx).on_click(cx.listener(
-                    move |this, _, _, cx| {
-                        pick(&mut this.cover, value);
-                        cx.notify();
-                    },
-                ))
-            }))
-    }
+/// A row of buttons, one for each value. The button of the current value is filled.
+fn choices<T: Copy + PartialEq + 'static>(
+    id: &'static str,
+    options: impl IntoIterator<Item = (T, &'static str)>,
+    current: T,
+    pick: fn(&mut TextCover, T),
+    cx: &mut Context<CoverEditor>,
+) -> Div {
+    div()
+        .flex()
+        .flex_wrap()
+        .gap(px(4.))
+        .children(options.into_iter().enumerate().map(|(ix, (value, label))| {
+            style::button((id, ix), label, value == current, cx).on_click(cx.listener(
+                move |this, _, _, cx| {
+                    pick(&mut this.cover, value);
+                    cx.notify();
+                },
+            ))
+        }))
 }
 
 fn row(label: &'static str, control: impl IntoElement, cx: &App) -> Div {
@@ -188,36 +187,35 @@ impl Render for CoverEditor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let preview = self.update_preview(window, cx);
         let backdrop = backdrop(window, cx);
-        let cover = self.cover.clone();
+        let cover = &self.cover;
 
-        let fonts = self.choices(
+        let fonts = choices(
             "font",
             CoverFont::ALL.map(|font| (font, font.label())),
             cover.font,
             |cover, font| cover.font = font,
             cx,
         );
-        let styles = self
-            .choices(
-                "bold",
-                [(true, "BOLD")],
-                cover.bold,
-                |cover, _| cover.bold = !cover.bold,
-                cx,
-            )
-            .child(self.choices(
-                "italic",
-                [(true, "ITALIC")],
-                cover.italic,
-                |cover, _| cover.italic = !cover.italic,
-                cx,
-            ))
-            .when(!cover.font.has_styles(), |row| row.opacity(style::DISABLED));
+        let styles = choices(
+            "bold",
+            [(true, "BOLD")],
+            cover.bold,
+            |cover, _| cover.bold = !cover.bold,
+            cx,
+        )
+        .child(choices(
+            "italic",
+            [(true, "ITALIC")],
+            cover.italic,
+            |cover, _| cover.italic = !cover.italic,
+            cx,
+        ))
+        .when(!cover.font.has_styles(), |row| row.opacity(style::DISABLED));
         let size = div()
             .flex()
             .items_center()
             .gap(px(12.))
-            .child(self.choices(
+            .child(choices(
                 "auto-size",
                 [(true, "AUTO")],
                 cover.auto_size,
@@ -238,42 +236,42 @@ impl Render for CoverEditor {
                             .text_right(),
                     ),
             );
-        let padding = self.choices(
+        let padding = choices(
             "padding",
             [(true, "ON"), (false, "OFF")],
             cover.padding,
             |cover, padding| cover.padding = padding,
             cx,
         );
-        let outline = self.choices(
+        let outline = choices(
             "outline",
             OUTLINES.map(|width| (width, ["NONE", "1 DOT", "2 DOTS"][width as usize])),
             cover.outline,
             |cover, width| cover.outline = width,
             cx,
         );
-        let colors = self.choices(
+        let colors = choices(
             "colors",
             [(false, "DARK ON LIGHT"), (true, "LIGHT ON DARK")],
             cover.inverted,
             |cover, inverted| cover.inverted = inverted,
             cx,
         );
-        let align = self.choices(
+        let align = choices(
             "align",
             [(Align::Left, "LEFT"), (Align::Center, "CENTER")],
             cover.align,
             |cover, align| cover.align = align,
             cx,
         );
-        let author = self.choices(
+        let author = choices(
             "author",
             [(true, "SHOW"), (false, "HIDE")],
             cover.author,
             |cover, author| cover.author = author,
             cx,
         );
-        let backgrounds = self.choices(
+        let backgrounds = choices(
             "background",
             Background::ALL.map(|background| (background, background.label())),
             cover.background,
